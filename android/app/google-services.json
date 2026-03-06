@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "537307571783",
+    "project_id": "roovia-app",
+    "storage_bucket": "roovia-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:537307571783:android:aa8c21ec0b422e0f19f362",
+        "android_client_info": {
+          "package_name": "com.roovia.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDAgTRWD90T_d3wtLotBtOdvfQh5OjIM94"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
