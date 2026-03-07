@@ -1,49 +1,73 @@
 import 'package:flutter/material.dart';
 import 'package:roovia/screens/house_dashboard_screen.dart';
-import 'package:roovia/screens/sign_up_screen.dart';
 
 import '../services/auth_service.dart';
 
-class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+class SignUpScreen extends StatefulWidget {
+  const SignUpScreen({super.key});
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  State<SignUpScreen> createState() => _SignUpScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _SignUpScreenState extends State<SignUpScreen> {
   static const _darkGreen = Color(0xFF0B3D2E);
   static const _lightGreen = Color(0xFFB9E8C9);
   static const _surfaceGreen = Color(0xFFE9F7EE);
 
   final AuthService _auth = AuthService();
+  final TextEditingController nameController = TextEditingController();
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
+  final TextEditingController confirmPasswordController =
+      TextEditingController();
 
   bool _loading = false;
 
   @override
   void dispose() {
+    nameController.dispose();
     emailController.dispose();
     passwordController.dispose();
+    confirmPasswordController.dispose();
     super.dispose();
   }
 
-  void _signIn() async {
-    if (emailController.text.isEmpty || passwordController.text.isEmpty) {
+  Future<void> _signUp() async {
+    final name = nameController.text.trim();
+    final email = emailController.text.trim();
+    final password = passwordController.text;
+    final confirmPassword = confirmPasswordController.text;
+
+    if (name.isEmpty || email.isEmpty || password.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter email and password')),
+        const SnackBar(content: Text('Please complete all required fields')),
       );
+      return;
+    }
+
+    if (password.length < 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Password should be at least 6 characters long'),
+        ),
+      );
+      return;
+    }
+
+    if (password != confirmPassword) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Passwords do not match')));
       return;
     }
 
     setState(() => _loading = true);
     try {
-      final user = await _auth.signIn(
-        emailController.text.trim(),
-        passwordController.text,
-      );
-      if (user != null && mounted) {
+      final user = await _auth.signUp(name, email, password);
+      if (!mounted) return;
+
+      if (user != null) {
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const HouseDashboardScreen()),
           (route) => false,
@@ -53,17 +77,11 @@ class _LoginScreenState extends State<LoginScreen> {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('Sign in failed: $e')));
+        ).showSnackBar(SnackBar(content: Text('Sign up failed: $e')));
       }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
-  }
-
-  Future<void> _openSignUp() async {
-    await Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const SignUpScreen()));
   }
 
   @override
@@ -99,6 +117,19 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      Row(
+                        children: [
+                          IconButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            style: IconButton.styleFrom(
+                              backgroundColor: _surfaceGreen,
+                              foregroundColor: _darkGreen,
+                            ),
+                            icon: const Icon(Icons.arrow_back_rounded),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
                       Container(
                         height: 74,
                         width: 74,
@@ -107,14 +138,14 @@ class _LoginScreenState extends State<LoginScreen> {
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(
-                          Icons.eco_rounded,
-                          size: 38,
+                          Icons.person_add_alt_1_rounded,
+                          size: 36,
                           color: _darkGreen,
                         ),
                       ),
                       const SizedBox(height: 24),
                       Text(
-                        'Welcome back',
+                        'Create your account',
                         style: Theme.of(context).textTheme.headlineMedium
                             ?.copyWith(
                               fontWeight: FontWeight.w800,
@@ -123,13 +154,20 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Sign in to continue building with Roovia in a fresh green workspace.',
+                        'Join Roovia with the same calm green experience and secure Firebase authentication.',
                         style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                           color: _darkGreen.withValues(alpha: 0.75),
                           height: 1.45,
                         ),
                       ),
                       const SizedBox(height: 28),
+                      _buildField(
+                        controller: nameController,
+                        label: 'Full name',
+                        hint: 'Your name',
+                        icon: Icons.person_outline_rounded,
+                      ),
+                      const SizedBox(height: 16),
                       _buildField(
                         controller: emailController,
                         label: 'Email address',
@@ -141,21 +179,17 @@ class _LoginScreenState extends State<LoginScreen> {
                       _buildField(
                         controller: passwordController,
                         label: 'Password',
-                        hint: 'Enter your password',
+                        hint: 'At least 6 characters',
                         icon: Icons.lock_outline_rounded,
                         obscureText: true,
                       ),
-                      const SizedBox(height: 14),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: Text(
-                          'Forgot password?',
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(
-                                color: _darkGreen,
-                                fontWeight: FontWeight.w600,
-                              ),
-                        ),
+                      const SizedBox(height: 16),
+                      _buildField(
+                        controller: confirmPasswordController,
+                        label: 'Confirm password',
+                        hint: 'Repeat your password',
+                        icon: Icons.verified_user_outlined,
+                        obscureText: true,
                       ),
                       const SizedBox(height: 24),
                       _loading
@@ -165,8 +199,8 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             )
                           : ElevatedButton(
-                              onPressed: _signIn,
-                              child: const Text('Sign In'),
+                              onPressed: _signUp,
+                              child: const Text('Create Account'),
                             ),
                       const SizedBox(height: 18),
                       Container(
@@ -181,13 +215,13 @@ class _LoginScreenState extends State<LoginScreen> {
                         child: Row(
                           children: [
                             const Icon(
-                              Icons.shield_moon_outlined,
+                              Icons.verified_outlined,
                               color: _darkGreen,
                             ),
                             const SizedBox(width: 12),
                             Expanded(
                               child: Text(
-                                'Your account access stays protected with Firebase authentication.',
+                                'We create your Firebase Auth account and save your profile in Cloud Firestore.',
                                 style: Theme.of(context).textTheme.bodyMedium
                                     ?.copyWith(
                                       color: _darkGreen.withValues(alpha: 0.8),
@@ -203,7 +237,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Text(
-                            'New to Roovia?',
+                            'Already have an account?',
                             style: Theme.of(context).textTheme.bodyMedium
                                 ?.copyWith(
                                   color: _darkGreen.withValues(alpha: 0.72),
@@ -211,8 +245,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                           ),
                           TextButton(
-                            onPressed: _openSignUp,
-                            child: const Text('Create account'),
+                            onPressed: () => Navigator.of(context).pop(),
+                            child: const Text('Sign in'),
                           ),
                         ],
                       ),

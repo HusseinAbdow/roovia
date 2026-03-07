@@ -1,69 +1,58 @@
 import 'package:flutter/material.dart';
-import 'package:roovia/screens/house_dashboard_screen.dart';
-import 'package:roovia/screens/sign_up_screen.dart';
 
-import '../services/auth_service.dart';
+import '../services/house_service.dart';
 
-class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+class CreateHouseScreen extends StatefulWidget {
+  const CreateHouseScreen({super.key});
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  State<CreateHouseScreen> createState() => _CreateHouseScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _CreateHouseScreenState extends State<CreateHouseScreen> {
   static const _darkGreen = Color(0xFF0B3D2E);
   static const _lightGreen = Color(0xFFB9E8C9);
   static const _surfaceGreen = Color(0xFFE9F7EE);
 
-  final AuthService _auth = AuthService();
-  final TextEditingController emailController = TextEditingController();
-  final TextEditingController passwordController = TextEditingController();
+  final HouseService _houseService = HouseService();
+  final TextEditingController houseNameController = TextEditingController();
 
   bool _loading = false;
 
   @override
   void dispose() {
-    emailController.dispose();
-    passwordController.dispose();
+    houseNameController.dispose();
     super.dispose();
   }
 
-  void _signIn() async {
-    if (emailController.text.isEmpty || passwordController.text.isEmpty) {
+  Future<void> _createHouse() async {
+    final houseName = houseNameController.text.trim();
+    if (houseName.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter email and password')),
+        const SnackBar(content: Text('Please enter a house name')),
       );
       return;
     }
 
     setState(() => _loading = true);
     try {
-      final user = await _auth.signIn(
-        emailController.text.trim(),
-        passwordController.text,
-      );
-      if (user != null && mounted) {
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const HouseDashboardScreen()),
-          (route) => false,
-        );
+      await _houseService.createHouse(houseName);
+      if (!mounted) {
+        return;
       }
+
+      Navigator.of(context).pop(true);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('Sign in failed: $e')));
+        ).showSnackBar(SnackBar(content: Text('Could not create house: $e')));
       }
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
-  }
-
-  Future<void> _openSignUp() async {
-    await Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const SignUpScreen()));
   }
 
   @override
@@ -99,6 +88,19 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      Row(
+                        children: [
+                          IconButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            style: IconButton.styleFrom(
+                              backgroundColor: _surfaceGreen,
+                              foregroundColor: _darkGreen,
+                            ),
+                            icon: const Icon(Icons.arrow_back_rounded),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
                       Container(
                         height: 74,
                         width: 74,
@@ -107,14 +109,14 @@ class _LoginScreenState extends State<LoginScreen> {
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(
-                          Icons.eco_rounded,
-                          size: 38,
+                          Icons.home_work_outlined,
+                          size: 36,
                           color: _darkGreen,
                         ),
                       ),
                       const SizedBox(height: 24),
                       Text(
-                        'Welcome back',
+                        'Create a house',
                         style: Theme.of(context).textTheme.headlineMedium
                             ?.copyWith(
                               fontWeight: FontWeight.w800,
@@ -123,38 +125,29 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Sign in to continue building with Roovia in a fresh green workspace.',
+                        'Start your shared home space and become the first member and leader.',
                         style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                           color: _darkGreen.withValues(alpha: 0.75),
                           height: 1.45,
                         ),
                       ),
                       const SizedBox(height: 28),
-                      _buildField(
-                        controller: emailController,
-                        label: 'Email address',
-                        hint: 'you@example.com',
-                        icon: Icons.mail_outline_rounded,
-                        keyboardType: TextInputType.emailAddress,
-                      ),
-                      const SizedBox(height: 16),
-                      _buildField(
-                        controller: passwordController,
-                        label: 'Password',
-                        hint: 'Enter your password',
-                        icon: Icons.lock_outline_rounded,
-                        obscureText: true,
-                      ),
-                      const SizedBox(height: 14),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: Text(
-                          'Forgot password?',
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(
-                                color: _darkGreen,
-                                fontWeight: FontWeight.w600,
-                              ),
+                      TextField(
+                        controller: houseNameController,
+                        decoration: InputDecoration(
+                          labelText: 'House name',
+                          hintText: 'e.g. Greenview Apartment',
+                          prefixIcon: const Icon(
+                            Icons.meeting_room_outlined,
+                            color: _darkGreen,
+                          ),
+                          labelStyle: const TextStyle(
+                            color: _darkGreen,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          hintStyle: TextStyle(
+                            color: _darkGreen.withValues(alpha: 0.45),
+                          ),
                         ),
                       ),
                       const SizedBox(height: 24),
@@ -165,8 +158,8 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             )
                           : ElevatedButton(
-                              onPressed: _signIn,
-                              child: const Text('Sign In'),
+                              onPressed: _createHouse,
+                              child: const Text('Create House'),
                             ),
                       const SizedBox(height: 18),
                       Container(
@@ -181,13 +174,13 @@ class _LoginScreenState extends State<LoginScreen> {
                         child: Row(
                           children: [
                             const Icon(
-                              Icons.shield_moon_outlined,
+                              Icons.groups_2_outlined,
                               color: _darkGreen,
                             ),
                             const SizedBox(width: 12),
                             Expanded(
                               child: Text(
-                                'Your account access stays protected with Firebase authentication.',
+                                'Your house will be saved in Firestore with you as leader and first member.',
                                 style: Theme.of(context).textTheme.bodyMedium
                                     ?.copyWith(
                                       color: _darkGreen.withValues(alpha: 0.8),
@@ -198,24 +191,6 @@ class _LoginScreenState extends State<LoginScreen> {
                           ],
                         ),
                       ),
-                      const SizedBox(height: 18),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            'New to Roovia?',
-                            style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(
-                                  color: _darkGreen.withValues(alpha: 0.72),
-                                  fontWeight: FontWeight.w500,
-                                ),
-                          ),
-                          TextButton(
-                            onPressed: _openSignUp,
-                            child: const Text('Create account'),
-                          ),
-                        ],
-                      ),
                     ],
                   ),
                 ),
@@ -223,31 +198,6 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildField({
-    required TextEditingController controller,
-    required String label,
-    required String hint,
-    required IconData icon,
-    bool obscureText = false,
-    TextInputType keyboardType = TextInputType.text,
-  }) {
-    return TextField(
-      controller: controller,
-      obscureText: obscureText,
-      keyboardType: keyboardType,
-      decoration: InputDecoration(
-        labelText: label,
-        hintText: hint,
-        prefixIcon: Icon(icon, color: _darkGreen),
-        labelStyle: const TextStyle(
-          color: _darkGreen,
-          fontWeight: FontWeight.w600,
-        ),
-        hintStyle: TextStyle(color: _darkGreen.withValues(alpha: 0.45)),
       ),
     );
   }

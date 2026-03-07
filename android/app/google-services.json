@@ -12,7 +12,20 @@
           "package_name": "com.roovia.app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "537307571783-ed1pg8f0n4pcos6v14dsaedjoutk0i57.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.roovia.app",
+            "certificate_hash": "f077ae8d00f1e4ccc8c6a70fa83da0da59770c8d"
+          }
+        },
+        {
+          "client_id": "537307571783-cm37jb0or81fo4p2jfrtdkm030q8u1ig.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyDAgTRWD90T_d3wtLotBtOdvfQh5OjIM94"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "537307571783-cm37jb0or81fo4p2jfrtdkm030q8u1ig.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

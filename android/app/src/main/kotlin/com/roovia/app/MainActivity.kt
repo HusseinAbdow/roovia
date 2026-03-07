@@ -1,4 +1,4 @@
-package com.example.roovia
+package com.roovia.app
 
 import io.flutter.embedding.android.FlutterActivity
 
