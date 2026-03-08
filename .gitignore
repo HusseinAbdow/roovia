@@ -32,6 +32,7 @@ migrate_working_dir/
 .pub/
 /build/
 /coverage/
+PROJECT_CONTEXT_FOR_CHATGPT.md
 
 # Symbolication related
 app.*.symbols
