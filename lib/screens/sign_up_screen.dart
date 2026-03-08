@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:roovia/screens/house_dashboard_screen.dart';
+import 'package:roovia/screens/main_screen.dart';
 
 import '../services/auth_service.dart';
 
@@ -68,8 +68,15 @@ class _SignUpScreenState extends State<SignUpScreen> {
       if (!mounted) return;
 
       if (user != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Account created successfully')),
+        );
+
+        await Future<void>.delayed(const Duration(milliseconds: 600));
+        if (!mounted) return;
+
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const HouseDashboardScreen()),
+          MaterialPageRoute(builder: (_) => const MainScreen()),
           (route) => false,
         );
       }
@@ -77,7 +84,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('Sign up failed: $e')));
+        ).showSnackBar(SnackBar(content: Text(e.toString())));
       }
     } finally {
       if (mounted) setState(() => _loading = false);

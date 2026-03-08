@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:roovia/screens/house_dashboard_screen.dart';
+import 'package:roovia/screens/main_screen.dart';
 import 'package:roovia/screens/sign_up_screen.dart';
 
 import '../services/auth_service.dart';
@@ -45,7 +45,7 @@ class _LoginScreenState extends State<LoginScreen> {
       );
       if (user != null && mounted) {
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const HouseDashboardScreen()),
+          MaterialPageRoute(builder: (_) => const MainScreen()),
           (route) => false,
         );
       }
@@ -53,7 +53,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('Sign in failed: $e')));
+        ).showSnackBar(SnackBar(content: Text(e.toString())));
       }
     } finally {
       if (mounted) setState(() => _loading = false);
