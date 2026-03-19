@@ -27,15 +27,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final AuthService _authService = AuthService();
 
   Future<void> _signOut() async {
-    await _authService.signOut();
-    if (!mounted) {
-      return;
-    }
+    try {
+      await _authService.signOut();
+      debugPrint('Sign out success from profile');
 
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
-      (route) => false,
-    );
+      if (!mounted) {
+        return;
+      }
+
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        (route) => false,
+      );
+    } catch (e, stackTrace) {
+      debugPrint('Sign out failed from profile: $e');
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not sign out: $e')));
+    }
   }
 
   @override
@@ -193,7 +208,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           const SizedBox(height: 6),
           Text(
-            user.email,
+            'Roovia member',
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodyLarge?.copyWith(
               color: _darkGreen.withValues(alpha: 0.72),
@@ -341,76 +356,91 @@ class _ProfileScreenState extends State<ProfileScreen> {
       );
     }
 
-    return Container(
-      padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(26),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x14000000),
-            blurRadius: 20,
-            offset: Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                height: 52,
-                width: 52,
-                decoration: const BoxDecoration(
-                  color: _surfaceGreen,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.apartment_rounded, color: _darkGreen),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      currentHouse.name,
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        color: _darkGreen,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Leader ID: ${currentHouse.leaderId}',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: _darkGreen.withValues(alpha: 0.72),
-                      ),
-                    ),
-                  ],
-                ),
+    return FutureBuilder<Map<String, String>>(
+      future: _houseService.getUserNamesByIds([currentHouse.leaderId]),
+      builder: (context, namesSnapshot) {
+        final leaderName =
+            (namesSnapshot.data ??
+                const <String, String>{})[currentHouse.leaderId] ??
+            'House owner';
+
+        return Container(
+          padding: const EdgeInsets.all(22),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(26),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x14000000),
+                blurRadius: 20,
+                offset: Offset(0, 10),
               ),
             ],
           ),
-          const SizedBox(height: 18),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildHouseDetailChip(
-                label: 'Members',
-                value: '${currentHouse.members.length}',
+              Row(
+                children: [
+                  Container(
+                    height: 52,
+                    width: 52,
+                    decoration: const BoxDecoration(
+                      color: _surfaceGreen,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.apartment_rounded,
+                      color: _darkGreen,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          currentHouse.name,
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(
+                                color: _darkGreen,
+                                fontWeight: FontWeight.w800,
+                              ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Leader: $leaderName',
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                color: _darkGreen.withValues(alpha: 0.72),
+                              ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-              _buildHouseDetailChip(
-                label: 'Created',
-                value: currentHouse.createdAt == null
-                    ? 'Pending sync'
-                    : '${currentHouse.createdAt!.year}-${currentHouse.createdAt!.month.toString().padLeft(2, '0')}-${currentHouse.createdAt!.day.toString().padLeft(2, '0')}',
+              const SizedBox(height: 18),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  _buildHouseDetailChip(
+                    label: 'Members',
+                    value: '${currentHouse.members.length}',
+                  ),
+                  _buildHouseDetailChip(
+                    label: 'Created',
+                    value: currentHouse.createdAt == null
+                        ? 'Pending sync'
+                        : '${currentHouse.createdAt!.year}-${currentHouse.createdAt!.month.toString().padLeft(2, '0')}-${currentHouse.createdAt!.day.toString().padLeft(2, '0')}',
+                  ),
+                ],
               ),
             ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 

@@ -29,7 +29,11 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  void _signIn() async {
+  Future<void> _signIn() async {
+    if (_loading) {
+      return;
+    }
+
     if (emailController.text.isEmpty || passwordController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter email and password')),
@@ -43,20 +47,46 @@ class _LoginScreenState extends State<LoginScreen> {
         emailController.text.trim(),
         passwordController.text,
       );
-      if (user != null && mounted) {
+
+      debugPrint('Login success for ${emailController.text.trim()}');
+
+      if (!mounted) {
+        debugPrint('NAVIGATION BLOCKED (login): widget is not mounted');
+        return;
+      }
+
+      setState(() => _loading = false);
+
+      if (user != null) {
+        debugPrint('NAVIGATING TO DASHBOARD (login)');
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const MainScreen()),
           (route) => false,
         );
+        debugPrint('NAVIGATION TO DASHBOARD TRIGGERED (login)');
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Unable to sign in right now.')),
+        );
       }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(e.toString())));
+    } catch (e, stackTrace) {
+      debugPrint('Login failed: $e');
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!mounted) {
+        debugPrint('Login error UI skipped: widget is not mounted');
+        return;
       }
+
+      setState(() => _loading = false);
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.toString())));
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && _loading) {
+        setState(() => _loading = false);
+      }
     }
   }
 

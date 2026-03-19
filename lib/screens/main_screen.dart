@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'create_house_screen.dart';
-import 'feed_screen.dart';
+import 'house_dashboard_screen.dart';
 import 'notifications_screen.dart';
 import 'profile_screen.dart';
 import 'search_screen.dart';
@@ -19,7 +19,7 @@ class _MainScreenState extends State<MainScreen> {
   int _selectedIndex = 0;
 
   static const _screens = [
-    FeedScreen(),
+    HouseDashboardScreen(),
     SearchScreen(),
     SizedBox.shrink(),
     NotificationsScreen(),

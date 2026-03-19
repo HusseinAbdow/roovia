@@ -26,6 +26,10 @@ class _CreateHouseScreenState extends State<CreateHouseScreen> {
   }
 
   Future<void> _createHouse() async {
+    if (_loading) {
+      return;
+    }
+
     final houseName = houseNameController.text.trim();
     if (houseName.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -36,20 +40,31 @@ class _CreateHouseScreenState extends State<CreateHouseScreen> {
 
     setState(() => _loading = true);
     try {
-      await _houseService.createHouse(houseName);
+      final house = await _houseService.createHouse(houseName);
+      debugPrint('Create house success: ${house.houseId} (${house.name})');
+
       if (!mounted) {
         return;
       }
 
+      setState(() => _loading = false);
+
       Navigator.of(context).pop(true);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Could not create house: $e')));
+    } catch (e, stackTrace) {
+      debugPrint('Create house failed: $e');
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!mounted) {
+        return;
       }
+
+      setState(() => _loading = false);
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not create house: $e')));
     } finally {
-      if (mounted) {
+      if (mounted && _loading) {
         setState(() => _loading = false);
       }
     }

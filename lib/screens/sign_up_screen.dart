@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:roovia/screens/main_screen.dart';
 
 import '../services/auth_service.dart';
 
@@ -34,6 +33,10 @@ class _SignUpScreenState extends State<SignUpScreen> {
   }
 
   Future<void> _signUp() async {
+    if (_loading) {
+      return;
+    }
+
     final name = nameController.text.trim();
     final email = emailController.text.trim();
     final password = passwordController.text;
@@ -65,7 +68,14 @@ class _SignUpScreenState extends State<SignUpScreen> {
     setState(() => _loading = true);
     try {
       final user = await _auth.signUp(name, email, password);
-      if (!mounted) return;
+      debugPrint('Sign up success for $email');
+
+      if (!mounted) {
+        debugPrint('NAVIGATION BLOCKED (signup): widget is not mounted');
+        return;
+      }
+
+      setState(() => _loading = false);
 
       if (user != null) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -73,21 +83,46 @@ class _SignUpScreenState extends State<SignUpScreen> {
         );
 
         await Future<void>.delayed(const Duration(milliseconds: 600));
-        if (!mounted) return;
+        if (!mounted) {
+          debugPrint(
+            'NAVIGATION BLOCKED (signup delayed): widget is not mounted',
+          );
+          return;
+        }
 
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const MainScreen()),
-          (route) => false,
+        await _auth.signOut();
+
+        if (!mounted) {
+          return;
+        }
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Account created. Please sign in.')),
+        );
+        Navigator.of(context).pop();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Unable to create account right now.')),
         );
       }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(e.toString())));
+    } catch (e, stackTrace) {
+      debugPrint('Sign up failed: $e');
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!mounted) {
+        debugPrint('Sign up error UI skipped: widget is not mounted');
+        return;
       }
+
+      setState(() => _loading = false);
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.toString())));
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && _loading) {
+        setState(() => _loading = false);
+      }
     }
   }
 
