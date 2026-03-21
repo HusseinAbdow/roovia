@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../constants/bartin_locations.dart';
 import '../services/house_service.dart';
 
 class CreateHouseScreen extends StatefulWidget {
@@ -15,13 +16,22 @@ class _CreateHouseScreenState extends State<CreateHouseScreen> {
   static const _surfaceGreen = Color(0xFFE9F7EE);
 
   final HouseService _houseService = HouseService();
-  final TextEditingController houseNameController = TextEditingController();
+  final TextEditingController _houseNameController = TextEditingController();
+  final TextEditingController _addressController = TextEditingController();
+  final TextEditingController _maxMembersController = TextEditingController(
+    text: '5',
+  );
+  final TextEditingController _descriptionController = TextEditingController();
+  String? _selectedDistrict;
 
   bool _loading = false;
 
   @override
   void dispose() {
-    houseNameController.dispose();
+    _houseNameController.dispose();
+    _addressController.dispose();
+    _maxMembersController.dispose();
+    _descriptionController.dispose();
     super.dispose();
   }
 
@@ -30,17 +40,66 @@ class _CreateHouseScreenState extends State<CreateHouseScreen> {
       return;
     }
 
-    final houseName = houseNameController.text.trim();
+    final houseName = _houseNameController.text.trim();
+    final city = bartinMerkezCity;
+    final district = _selectedDistrict?.trim() ?? '';
+    final address = _addressController.text.trim();
+    final description = _descriptionController.text.trim();
+    final maxMembersStr = _maxMembersController.text.trim();
+
+    // Validation
     if (houseName.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter a house name')),
       );
       return;
     }
+    if (district.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please select a mahalle')));
+      return;
+    }
+    if (address.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please enter an address')));
+      return;
+    }
+
+    int maxMembers = 5;
+    if (maxMembersStr.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please enter max members')));
+      return;
+    }
+
+    try {
+      maxMembers = int.parse(maxMembersStr);
+      if (maxMembers <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Max members must be greater than 0')),
+        );
+        return;
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a valid number')),
+      );
+      return;
+    }
 
     setState(() => _loading = true);
     try {
-      final house = await _houseService.createHouse(houseName);
+      final house = await _houseService.createHouse(
+        name: houseName,
+        city: city,
+        district: district,
+        address: address,
+        maxMembers: maxMembers,
+        description: description,
+      );
       debugPrint('Create house success: ${house.houseId} (${house.name})');
 
       if (!mounted) {
@@ -147,8 +206,9 @@ class _CreateHouseScreenState extends State<CreateHouseScreen> {
                         ),
                       ),
                       const SizedBox(height: 28),
+                      // House Name
                       TextField(
-                        controller: houseNameController,
+                        controller: _houseNameController,
                         decoration: InputDecoration(
                           labelText: 'House name',
                           hintText: 'e.g. Greenview Apartment',
@@ -165,7 +225,121 @@ class _CreateHouseScreenState extends State<CreateHouseScreen> {
                           ),
                         ),
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 16),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _surfaceGreen,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.location_city_outlined,
+                              color: _darkGreen,
+                            ),
+                            const SizedBox(width: 10),
+                            Text(
+                              'City: $bartinMerkezCity',
+                              style: const TextStyle(
+                                color: _darkGreen,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      DropdownButtonFormField<String>(
+                        value: _selectedDistrict,
+                        items: bartinMerkezMahalleleri
+                            .map(
+                              (mahalle) => DropdownMenuItem<String>(
+                                value: mahalle,
+                                child: Text(mahalle),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: _loading
+                            ? null
+                            : (value) {
+                                setState(() => _selectedDistrict = value);
+                              },
+                        decoration: const InputDecoration(
+                          labelText: 'Mahalle',
+                          prefixIcon: Icon(
+                            Icons.map_outlined,
+                            color: _darkGreen,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      // Address
+                      TextField(
+                        controller: _addressController,
+                        decoration: InputDecoration(
+                          labelText: 'Address',
+                          hintText: 'e.g. 123 Main Street, Apt 4B',
+                          prefixIcon: const Icon(
+                            Icons.location_on_outlined,
+                            color: _darkGreen,
+                          ),
+                          labelStyle: const TextStyle(
+                            color: _darkGreen,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          hintStyle: TextStyle(
+                            color: _darkGreen.withValues(alpha: 0.45),
+                          ),
+                        ),
+                        maxLines: 2,
+                      ),
+                      const SizedBox(height: 16),
+                      // Max Members
+                      TextField(
+                        controller: _maxMembersController,
+                        keyboardType: TextInputType.number,
+                        decoration: InputDecoration(
+                          labelText: 'Max members',
+                          hintText: '5',
+                          prefixIcon: const Icon(
+                            Icons.groups_outlined,
+                            color: _darkGreen,
+                          ),
+                          labelStyle: const TextStyle(
+                            color: _darkGreen,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          hintStyle: TextStyle(
+                            color: _darkGreen.withValues(alpha: 0.45),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      // Description
+                      TextField(
+                        controller: _descriptionController,
+                        decoration: InputDecoration(
+                          labelText: 'Description (optional)',
+                          hintText: 'e.g. Cozy apartment near campus',
+                          prefixIcon: const Icon(
+                            Icons.description_outlined,
+                            color: _darkGreen,
+                          ),
+                          labelStyle: const TextStyle(
+                            color: _darkGreen,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          hintStyle: TextStyle(
+                            color: _darkGreen.withValues(alpha: 0.45),
+                          ),
+                        ),
+                        maxLines: 3,
+                      ),
+                      const SizedBox(height: 28),
                       _loading
                           ? const Center(
                               child: CircularProgressIndicator(
@@ -195,7 +369,7 @@ class _CreateHouseScreenState extends State<CreateHouseScreen> {
                             const SizedBox(width: 12),
                             Expanded(
                               child: Text(
-                                'Your house will be saved in Firestore with you as leader and first member.',
+                                'Your house will be saved in Firestore with you as leader. Address is private to members only.',
                                 style: Theme.of(context).textTheme.bodyMedium
                                     ?.copyWith(
                                       color: _darkGreen.withValues(alpha: 0.8),

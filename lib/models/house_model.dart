@@ -7,6 +7,11 @@ class House {
   final List<String> members;
   final String inviteCode;
   final bool discoverable;
+  final String city;
+  final String district;
+  final String address;
+  final int maxMembers;
+  final String description;
   final DateTime? createdAt;
 
   House({
@@ -16,6 +21,11 @@ class House {
     required this.members,
     required this.inviteCode,
     required this.discoverable,
+    required this.city,
+    required this.district,
+    required this.address,
+    required this.maxMembers,
+    required this.description,
     this.createdAt,
   });
 
@@ -29,6 +39,11 @@ class House {
       members: List<String>.from(map['members'] as List<dynamic>? ?? const []),
       inviteCode: map['inviteCode'] as String? ?? '',
       discoverable: map['discoverable'] as bool? ?? true,
+      city: map['city'] as String? ?? '',
+      district: map['district'] as String? ?? map['area'] as String? ?? '',
+      address: map['address'] as String? ?? '',
+      maxMembers: map['maxMembers'] as int? ?? 5,
+      description: map['description'] as String? ?? '',
       createdAt: createdAtValue is Timestamp
           ? createdAtValue.toDate()
           : createdAtValue is DateTime
@@ -45,6 +60,11 @@ class House {
       'members': members,
       'inviteCode': inviteCode,
       'discoverable': discoverable,
+      'city': city,
+      'district': district,
+      'address': address,
+      'maxMembers': maxMembers,
+      'description': description,
       'createdAt': createdAt,
     };
   }

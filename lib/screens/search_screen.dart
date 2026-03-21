@@ -3,9 +3,11 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../constants/bartin_locations.dart';
 import '../models/house_model.dart';
 import '../models/join_request_model.dart';
 import '../services/house_service.dart';
+import 'house_detail_screen.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -30,12 +32,14 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _isSearching = false;
   bool _isJoiningByCode = false;
   final Set<String> _joiningHouseIds = <String>{};
+  final Set<String> _openingHouseIds = <String>{};
   String _searchQuery = '';
+  String? _selectedMahalle;
 
   @override
   void initState() {
     super.initState();
-    _runSearch('');
+    _runSearch();
   }
 
   @override
@@ -46,15 +50,15 @@ class _SearchScreenState extends State<SearchScreen> {
     super.dispose();
   }
 
-  void _onSearchChanged(String value) {
+  void _scheduleSearch() {
     _searchDebounce?.cancel();
-    _searchDebounce = Timer(_debounceDuration, () {
-      _runSearch(value);
-    });
+    _searchDebounce = Timer(_debounceDuration, _runSearch);
   }
 
-  Future<void> _runSearch(String query) async {
-    final normalizedQuery = query.trim();
+  Future<void> _runSearch() async {
+    final normalizedQuery = _searchController.text.trim();
+    final normalizedLocationQuery = _selectedMahalle ?? '';
+
     if (mounted) {
       setState(() {
         _isSearching = true;
@@ -65,6 +69,7 @@ class _SearchScreenState extends State<SearchScreen> {
     try {
       final houses = await _houseService.searchDiscoverableHouses(
         normalizedQuery,
+        locationQuery: normalizedLocationQuery,
       );
 
       if (!mounted) {
@@ -90,6 +95,38 @@ class _SearchScreenState extends State<SearchScreen> {
         setState(() {
           _isSearching = false;
         });
+      }
+    }
+  }
+
+  Future<void> _openHouseDetails(House house) async {
+    if (_openingHouseIds.contains(house.houseId)) {
+      return;
+    }
+
+    setState(() => _openingHouseIds.add(house.houseId));
+    try {
+      final latestHouse = await _houseService.getHouseById(house.houseId);
+
+      if (!mounted) {
+        return;
+      }
+
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => HouseDetailScreen(house: latestHouse ?? house),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not open house: $e')));
+    } finally {
+      if (mounted) {
+        setState(() => _openingHouseIds.remove(house.houseId));
       }
     }
   }
@@ -187,26 +224,147 @@ class _SearchScreenState extends State<SearchScreen> {
     }
   }
 
+  Widget _buildFilterPanel() {
+    return Card(
+      elevation: 0,
+      color: _surfaceGreen,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          children: [
+            TextField(
+              controller: _searchController,
+              onChanged: (_) => _scheduleSearch(),
+              decoration: InputDecoration(
+                hintText: 'Search by house name',
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: _searchController.text.isEmpty
+                    ? null
+                    : IconButton(
+                        icon: const Icon(Icons.close_rounded),
+                        onPressed: () {
+                          _searchController.clear();
+                          _runSearch();
+                        },
+                      ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.location_city_outlined, color: _darkGreen),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      bartinMerkezCity,
+                      style: const TextStyle(
+                        color: _darkGreen,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            DropdownButtonFormField<String>(
+              value: _selectedMahalle,
+              isExpanded: true,
+              items: [
+                const DropdownMenuItem<String>(
+                  value: null,
+                  child: Text('All Mahalleler'),
+                ),
+                ...bartinMerkezMahalleleri.map(
+                  (mahalle) => DropdownMenuItem<String>(
+                    value: mahalle,
+                    child: Text(mahalle),
+                  ),
+                ),
+              ],
+              onChanged: (value) {
+                setState(() => _selectedMahalle = value);
+                _runSearch();
+              },
+              decoration: const InputDecoration(
+                hintText: 'Select mahalle',
+                prefixIcon: Icon(Icons.map_outlined),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusChip(String requestStatus) {
+    final bool isPending = requestStatus == JoinRequestStatus.pending;
+    final bool isAccepted = requestStatus == JoinRequestStatus.accepted;
+
+    final Color background = isAccepted
+        ? const Color(0xFFD7F4DF)
+        : isPending
+        ? const Color(0xFFE7F3EC)
+        : const Color(0xFFF1F1F1);
+    final Color foreground = isAccepted
+        ? const Color(0xFF0B6A3E)
+        : isPending
+        ? _darkGreen
+        : const Color(0xFF555555);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        requestStatus,
+        style: TextStyle(
+          color: foreground,
+          fontWeight: FontWeight.w700,
+          fontSize: 12,
+        ),
+      ),
+    );
+  }
+
   Widget _buildResultCard(House house, {String? requestStatus}) {
     final isJoining = _joiningHouseIds.contains(house.houseId);
+    final isOpening = _openingHouseIds.contains(house.houseId);
     final hasPending = requestStatus == JoinRequestStatus.pending;
     final isAccepted = requestStatus == JoinRequestStatus.accepted;
-    final shouldDisableRequest = isJoining || hasPending || isAccepted;
+    final isFull = house.members.length >= house.maxMembers;
+    final shouldDisableRequest =
+        isJoining || hasPending || isAccepted || isFull;
 
     String buttonLabel = 'Request to Join';
     if (hasPending) {
       buttonLabel = 'Pending Approval';
     } else if (isAccepted) {
       buttonLabel = 'Approved';
+    } else if (isFull) {
+      buttonLabel = 'House Full';
     }
+
+    final locationText = house.district.isEmpty
+        ? house.city
+        : '${house.city} • ${house.district}';
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       elevation: 0,
       color: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -217,41 +375,110 @@ class _SearchScreenState extends State<SearchScreen> {
                 fontWeight: FontWeight.w800,
               ),
             ),
-            const SizedBox(height: 6),
-            Text(
-              'Members: ${house.members.length}',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: _darkGreen.withValues(alpha: 0.75),
-              ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _surfaceGreen,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.location_city_outlined,
+                        size: 14,
+                        color: _darkGreen.withValues(alpha: 0.85),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        locationText,
+                        style: TextStyle(
+                          color: _darkGreen.withValues(alpha: 0.9),
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _surfaceGreen,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    '${house.members.length} / ${house.maxMembers} members',
+                    style: TextStyle(
+                      color: _darkGreen.withValues(alpha: 0.9),
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+                if (requestStatus != null) _buildStatusChip(requestStatus),
+                if (isFull) const _SearchTag(text: 'Full'),
+              ],
             ),
-            if (requestStatus != null) ...[
-              const SizedBox(height: 6),
+            if (house.description.isNotEmpty) ...[
+              const SizedBox(height: 10),
               Text(
-                'Request status: $requestStatus',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: _darkGreen.withValues(alpha: 0.78),
-                  fontWeight: FontWeight.w600,
+                house.description,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: const Color(0xFF46635A),
                 ),
               ),
             ],
             const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: shouldDisableRequest
-                    ? null
-                    : () => _requestToJoin(house),
-                child: isJoining
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : Text(buttonLabel),
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: isOpening
+                        ? null
+                        : () => _openHouseDetails(house),
+                    icon: isOpening
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.visibility_outlined),
+                    label: const Text('View Details'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: shouldDisableRequest
+                        ? null
+                        : () => _requestToJoin(house),
+                    child: isJoining
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : Text(buttonLabel),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -308,38 +535,39 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
+  Widget _buildNoResultsCard() {
+    final hasFilters = _searchQuery.isNotEmpty || _selectedMahalle != null;
+
+    return Card(
+      elevation: 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Text(
+          hasFilters
+              ? 'No houses found for current filters.'
+              : 'No houses found.',
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+            color: _darkGreen.withValues(alpha: 0.75),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final hasNoResults = !_isSearching && _results.isEmpty;
     final currentUserId = _auth.currentUser?.uid;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Search')),
+      appBar: AppBar(title: const Text('Find Houses')),
       body: Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
         child: Column(
           children: [
-            Card(
-              elevation: 0,
-              color: _surfaceGreen,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: TextField(
-                  controller: _searchController,
-                  onChanged: _onSearchChanged,
-                  decoration: const InputDecoration(
-                    hintText: 'Search houses by name',
-                    prefixIcon: Icon(Icons.search_rounded),
-                    border: InputBorder.none,
-                    enabledBorder: InputBorder.none,
-                    focusedBorder: InputBorder.none,
-                  ),
-                ),
-              ),
-            ),
+            _buildFilterPanel(),
             const SizedBox(height: 12),
             Expanded(
               child: currentUserId == null
@@ -354,26 +582,7 @@ class _SearchScreenState extends State<SearchScreen> {
                               ),
                             ),
                           ),
-                        if (hasNoResults)
-                          Card(
-                            elevation: 0,
-                            color: Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(18),
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.all(18),
-                              child: Text(
-                                _searchQuery.isEmpty
-                                    ? 'No houses found'
-                                    : 'No houses found for "$_searchQuery"',
-                                style: Theme.of(context).textTheme.bodyLarge
-                                    ?.copyWith(
-                                      color: _darkGreen.withValues(alpha: 0.75),
-                                    ),
-                              ),
-                            ),
-                          ),
+                        if (hasNoResults) _buildNoResultsCard(),
                         ..._results.map((house) => _buildResultCard(house)),
                         const SizedBox(height: 8),
                         _buildJoinWithCodeSection(),
@@ -403,28 +612,7 @@ class _SearchScreenState extends State<SearchScreen> {
                                   ),
                                 ),
                               ),
-                            if (hasNoResults)
-                              Card(
-                                elevation: 0,
-                                color: Colors.white,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(18),
-                                ),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(18),
-                                  child: Text(
-                                    _searchQuery.isEmpty
-                                        ? 'No houses found'
-                                        : 'No houses found for "$_searchQuery"',
-                                    style: Theme.of(context).textTheme.bodyLarge
-                                        ?.copyWith(
-                                          color: _darkGreen.withValues(
-                                            alpha: 0.75,
-                                          ),
-                                        ),
-                                  ),
-                                ),
-                              ),
+                            if (hasNoResults) _buildNoResultsCard(),
                             ..._results.map(
                               (house) => _buildResultCard(
                                 house,
@@ -440,6 +628,31 @@ class _SearchScreenState extends State<SearchScreen> {
                     ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SearchTag extends StatelessWidget {
+  final String text;
+
+  const _SearchTag({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFDEEEA),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Color(0xFF8B3B2C),
+          fontWeight: FontWeight.w700,
+          fontSize: 12,
         ),
       ),
     );

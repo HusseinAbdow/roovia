@@ -153,13 +153,20 @@ class HouseService {
     QueryDocumentSnapshot<Map<String, dynamic>> doc, {
     required String source,
   }) {
-    final raw = doc.data();
+    return _houseFromRawWithFallback(doc.data(), doc.id, source: source);
+  }
+
+  House _houseFromRawWithFallback(
+    Map<String, dynamic> raw,
+    String docId, {
+    required String source,
+  }) {
     final normalizedInviteCode = _normalizeInviteCode(
       _extractStringField(raw, const ['inviteCode', 'invite_code', 'code']),
     );
     if (normalizedInviteCode.isEmpty) {
       debugPrint(
-        'HouseService.$source warning: house ${doc.id} has missing/empty inviteCode',
+        'HouseService.$source warning: house $docId has missing/empty inviteCode',
       );
     }
 
@@ -169,7 +176,7 @@ class HouseService {
 
     if (!hasDiscoverableField || rawDiscoverable == null) {
       debugPrint(
-        'HouseService.$source warning: house ${doc.id} missing discoverable; treating as true',
+        'HouseService.$source warning: house $docId missing discoverable; treating as true',
       );
     }
 
@@ -191,7 +198,7 @@ class HouseService {
       ...raw,
       'houseId': (raw['houseId'] as String?)?.trim().isNotEmpty == true
           ? raw['houseId']
-          : doc.id,
+          : docId,
       'name': normalizedName,
       'leaderId': normalizedLeaderId,
       'members': normalizedMembers,
@@ -200,6 +207,49 @@ class HouseService {
     };
 
     return House.fromMap(normalized);
+  }
+
+  Future<House?> getHouseById(String houseId) async {
+    final trimmedHouseId = houseId.trim();
+    if (trimmedHouseId.isEmpty) {
+      throw ArgumentError('House ID cannot be empty');
+    }
+
+    try {
+      final snapshot = await _db
+          .collection('houses')
+          .doc(trimmedHouseId)
+          .get()
+          .timeout(_networkTimeout);
+
+      final raw = snapshot.data();
+      if (!snapshot.exists || raw == null) {
+        return null;
+      }
+
+      return _houseFromRawWithFallback(
+        raw,
+        snapshot.id,
+        source: 'getHouseById',
+      );
+    } on FirebaseException catch (e, stackTrace) {
+      debugPrint('HouseService.getHouseById firebase error: ${e.code}');
+      debugPrintStack(stackTrace: stackTrace);
+      if (_isMissingDefaultDbError(e)) {
+        throw _missingFirestoreDbError();
+      }
+      rethrow;
+    } on TimeoutException catch (e, stackTrace) {
+      debugPrint('HouseService.getHouseById timeout: $e');
+      debugPrintStack(stackTrace: stackTrace);
+      throw StateError(
+        'Request timed out. Please check your network and try again.',
+      );
+    } catch (e, stackTrace) {
+      debugPrint('HouseService.getHouseById unexpected error: $e');
+      debugPrintStack(stackTrace: stackTrace);
+      rethrow;
+    }
   }
 
   Stream<House?> getCurrentUserHouse() {
@@ -231,11 +281,15 @@ class HouseService {
         });
   }
 
-  Future<List<House>> searchDiscoverableHouses(String query) async {
+  Future<List<House>> searchDiscoverableHouses(
+    String query, {
+    String locationQuery = '',
+  }) async {
     final currentUserId = _currentUser.uid;
     final normalizedQuery = query.trim().toLowerCase();
+    final normalizedLocationQuery = locationQuery.trim().toLowerCase();
     debugPrint(
-      'HouseService.searchDiscoverableHouses started | query="$query" | normalized="$normalizedQuery" | currentUserId="$currentUserId" | projectId=${Firebase.app().options.projectId}',
+      'HouseService.searchDiscoverableHouses started | query="$query" | locationQuery="$locationQuery" | normalized="$normalizedQuery" | normalizedLocation="$normalizedLocationQuery" | currentUserId="$currentUserId" | projectId=${Firebase.app().options.projectId}',
     );
 
     try {
@@ -276,16 +330,25 @@ class HouseService {
         'HouseService.searchDiscoverableHouses fetched | discoverableQuery=${discoverableSnapshot.docs.length} | fallbackMissingDiscoverable=${fallbackDiscoverableDocs.length} | totalMerged=${discoverableHouses.length}',
       );
 
-      if (normalizedQuery.isEmpty) {
+      if (normalizedQuery.isEmpty && normalizedLocationQuery.isEmpty) {
         debugPrint(
           'HouseService.searchDiscoverableHouses complete | discoverableOnly=${discoverableHouses.length} | visible=${visibleHouses.length} | filtered=${visibleHouses.length}',
         );
         return visibleHouses;
       }
 
-      final filtered = visibleHouses
-          .where((house) => _matchesHouseName(house.name, normalizedQuery))
-          .toList();
+      final filtered = visibleHouses.where((house) {
+        final matchesName = normalizedQuery.isEmpty
+            ? true
+            : _matchesHouseName(house.name, normalizedQuery);
+        final matchesLocation = normalizedLocationQuery.isEmpty
+            ? true
+            : _matchesHouseName(
+                '${house.city} ${house.district}',
+                normalizedLocationQuery,
+              );
+        return matchesName && matchesLocation;
+      }).toList();
 
       debugPrint(
         'HouseService.searchDiscoverableHouses complete | discoverableOnly=${discoverableHouses.length} | visible=${visibleHouses.length} | filtered=${filtered.length}',
@@ -313,10 +376,34 @@ class HouseService {
     }
   }
 
-  Future<House> createHouse(String name) async {
+  Future<House> createHouse({
+    required String name,
+    required String city,
+    required String district,
+    required String address,
+    required int maxMembers,
+    String description = '',
+  }) async {
     final trimmedName = name.trim();
+    final trimmedCity = city.trim();
+    final trimmedDistrict = district.trim();
+    final trimmedAddress = address.trim();
+    final trimmedDescription = description.trim();
+
     if (trimmedName.isEmpty) {
       throw ArgumentError('House name cannot be empty');
+    }
+    if (trimmedCity.isEmpty) {
+      throw ArgumentError('City cannot be empty');
+    }
+    if (trimmedDistrict.isEmpty) {
+      throw ArgumentError('District cannot be empty');
+    }
+    if (trimmedAddress.isEmpty) {
+      throw ArgumentError('Address cannot be empty');
+    }
+    if (maxMembers <= 0) {
+      throw ArgumentError('Max members must be greater than 0');
     }
 
     try {
@@ -330,11 +417,16 @@ class HouseService {
         'members': [uid],
         'inviteCode': inviteCode,
         'discoverable': true,
+        'city': trimmedCity,
+        'district': trimmedDistrict,
+        'address': trimmedAddress,
+        'maxMembers': maxMembers,
+        'description': trimmedDescription,
         'createdAt': FieldValue.serverTimestamp(),
       };
 
       debugPrint(
-        'HouseService.createHouse writing | houseId=${docRef.id} | inviteCode=$inviteCode | discoverable=true',
+        'HouseService.createHouse writing | houseId=${docRef.id} | inviteCode=$inviteCode | discoverable=true | maxMembers=$maxMembers',
       );
 
       await docRef.set(data).timeout(_networkTimeout);
@@ -348,7 +440,7 @@ class HouseService {
         );
       }
       debugPrint(
-        'HouseService.createHouse success: ${createdHouse.houseId} (${createdHouse.name}) | inviteCode=${createdHouse.inviteCode} | discoverable=${createdHouse.discoverable}',
+        'HouseService.createHouse success: ${createdHouse.houseId} (${createdHouse.name}) | inviteCode=${createdHouse.inviteCode} | discoverable=${createdHouse.discoverable} | maxMembers=${createdHouse.maxMembers}',
       );
       return createdHouse;
     } on FirebaseException catch (e, stackTrace) {
@@ -593,6 +685,23 @@ class HouseService {
       final requesterUserId = userId?.trim().isNotEmpty == true
           ? userId!.trim()
           : _currentUser.uid;
+
+      final houseRef = _db.collection('houses').doc(trimmedHouseId);
+      final houseSnapshot = await houseRef.get().timeout(_networkTimeout);
+      if (!houseSnapshot.exists || houseSnapshot.data() == null) {
+        throw StateError('House not found');
+      }
+
+      final rawHouse = houseSnapshot.data()!;
+      final members = _extractMembers(rawHouse);
+      final maxMembers = rawHouse['maxMembers'] as int? ?? 5;
+      if (members.length >= maxMembers) {
+        throw StateError('House is full');
+      }
+
+      if (members.contains(requesterUserId)) {
+        throw StateError('User is already a member of this house');
+      }
 
       final existingPending = await _db
           .collection('join_requests')
@@ -866,6 +975,13 @@ class HouseService {
 
             if (approve) {
               final members = _extractMembers(rawHouse);
+              final maxMembers = rawHouse['maxMembers'] as int? ?? 5;
+
+              // Check capacity before adding member
+              if (members.length >= maxMembers) {
+                throw StateError('House is full');
+              }
+
               final updatedMembers = members.toSet();
               updatedMembers.add(request.userId);
 
