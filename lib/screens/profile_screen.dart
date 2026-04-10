@@ -26,6 +26,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final HouseService _houseService = HouseService();
   final AuthService _authService = AuthService();
 
+  String _formatTry(double value) => '₺${value.toStringAsFixed(2)}';
+
   Future<void> _signOut() async {
     try {
       await _authService.signOut();
@@ -47,9 +49,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         return;
       }
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Could not sign out: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not sign out: $e')));
     }
   }
 
@@ -69,8 +69,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 context,
                 icon: Icons.lock_outline_rounded,
                 title: 'No active account',
-                description:
-                    'Sign in again to load your profile, house details, and ratings.',
+                description: 'Sign in again to load your profile, house details, and ratings.',
               ),
             ),
           ),
@@ -138,10 +137,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  RooviaUser _buildProfile({
-    required User firebaseUser,
-    required Map<String, dynamic>? rawData,
-  }) {
+  RooviaUser _buildProfile({required User firebaseUser, required Map<String, dynamic>? rawData}) {
     final fallback = RooviaUser(
       uid: firebaseUser.uid,
       name: firebaseUser.displayName?.trim().isNotEmpty == true
@@ -177,11 +173,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(30),
         boxShadow: const [
-          BoxShadow(
-            color: Color(0x14000000),
-            blurRadius: 24,
-            offset: Offset(0, 14),
-          ),
+          BoxShadow(color: Color(0x14000000), blurRadius: 24, offset: Offset(0, 14)),
         ],
       ),
       child: Column(
@@ -191,28 +183,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
             backgroundColor: _surfaceGreen,
             child: Text(
               initial.toUpperCase(),
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                color: _darkGreen,
-                fontWeight: FontWeight.w800,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.headlineMedium?.copyWith(color: _darkGreen, fontWeight: FontWeight.w800),
             ),
           ),
           const SizedBox(height: 16),
           Text(
             user.name,
             textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-              color: _darkGreen,
-              fontWeight: FontWeight.w800,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(color: _darkGreen, fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 6),
           Text(
             'Roovia member',
             textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              color: _darkGreen.withValues(alpha: 0.72),
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyLarge?.copyWith(color: _darkGreen.withValues(alpha: 0.72)),
           ),
           const SizedBox(height: 14),
           Container(
@@ -228,10 +218,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 const SizedBox(width: 8),
                 Text(
                   'Rating ${user.rating.toStringAsFixed(1)}',
-                  style: const TextStyle(
-                    color: _darkGreen,
-                    fontWeight: FontWeight.w700,
-                  ),
+                  style: const TextStyle(color: _darkGreen, fontWeight: FontWeight.w700),
                 ),
               ],
             ),
@@ -289,11 +276,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           color: Colors.white,
           borderRadius: BorderRadius.circular(22),
           boxShadow: const [
-            BoxShadow(
-              color: Color(0x14000000),
-              blurRadius: 20,
-              offset: Offset(0, 10),
-            ),
+            BoxShadow(color: Color(0x14000000), blurRadius: 20, offset: Offset(0, 10)),
           ],
         ),
         child: Column(
@@ -303,10 +286,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
             const SizedBox(height: 14),
             Text(
               value,
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                color: _darkGreen,
-                fontWeight: FontWeight.w800,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.headlineSmall?.copyWith(color: _darkGreen, fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 6),
             Text(
@@ -360,8 +342,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       future: _houseService.getUserNamesByIds([currentHouse.leaderId]),
       builder: (context, namesSnapshot) {
         final leaderName =
-            (namesSnapshot.data ??
-                const <String, String>{})[currentHouse.leaderId] ??
+            (namesSnapshot.data ?? const <String, String>{})[currentHouse.leaderId] ??
             'House owner';
 
         return Container(
@@ -370,11 +351,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             color: Colors.white,
             borderRadius: BorderRadius.circular(26),
             boxShadow: const [
-              BoxShadow(
-                color: Color(0x14000000),
-                blurRadius: 20,
-                offset: Offset(0, 10),
-              ),
+              BoxShadow(color: Color(0x14000000), blurRadius: 20, offset: Offset(0, 10)),
             ],
           ),
           child: Column(
@@ -385,14 +362,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Container(
                     height: 52,
                     width: 52,
-                    decoration: const BoxDecoration(
-                      color: _surfaceGreen,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.apartment_rounded,
-                      color: _darkGreen,
-                    ),
+                    decoration: const BoxDecoration(color: _surfaceGreen, shape: BoxShape.circle),
+                    child: const Icon(Icons.apartment_rounded, color: _darkGreen),
                   ),
                   const SizedBox(width: 14),
                   Expanded(
@@ -401,19 +372,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       children: [
                         Text(
                           currentHouse.name,
-                          style: Theme.of(context).textTheme.titleLarge
-                              ?.copyWith(
-                                color: _darkGreen,
-                                fontWeight: FontWeight.w800,
-                              ),
+                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            color: _darkGreen,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                         const SizedBox(height: 4),
                         Text(
                           'Leader: $leaderName',
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(
-                                color: _darkGreen.withValues(alpha: 0.72),
-                              ),
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: _darkGreen.withValues(alpha: 0.72),
+                          ),
                         ),
                       ],
                     ),
@@ -425,10 +394,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 spacing: 10,
                 runSpacing: 10,
                 children: [
-                  _buildHouseDetailChip(
-                    label: 'Members',
-                    value: '${currentHouse.members.length}',
-                  ),
+                  _buildHouseDetailChip(label: 'Members', value: '${currentHouse.members.length}'),
                   _buildHouseDetailChip(
                     label: 'Created',
                     value: currentHouse.createdAt == null
@@ -436,6 +402,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         : '${currentHouse.createdAt!.year}-${currentHouse.createdAt!.month.toString().padLeft(2, '0')}-${currentHouse.createdAt!.day.toString().padLeft(2, '0')}',
                   ),
                 ],
+              ),
+              const SizedBox(height: 14),
+              _buildHouseDetailChip(label: 'Total Rent', value: _formatTry(currentHouse.rentTotal)),
+              const SizedBox(height: 8),
+              _buildHouseDetailChip(
+                label: 'Electricity',
+                value: _formatTry(currentHouse.electricityTotal),
+              ),
+              const SizedBox(height: 8),
+              _buildHouseDetailChip(label: 'Water', value: _formatTry(currentHouse.waterTotal)),
+              const SizedBox(height: 8),
+              _buildHouseDetailChip(
+                label: 'Internet',
+                value: _formatTry(currentHouse.internetTotal),
+              ),
+              const SizedBox(height: 8),
+              _buildHouseDetailChip(
+                label: 'Estimated per-person monthly cost',
+                value: _formatTry(currentHouse.perPersonMonthlyCost),
               ),
             ],
           ),
@@ -447,10 +432,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _buildHouseDetailChip({required String label, required String value}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: _surfaceGreen,
-        borderRadius: BorderRadius.circular(16),
-      ),
+      decoration: BoxDecoration(color: _surfaceGreen, borderRadius: BorderRadius.circular(16)),
       child: RichText(
         text: TextSpan(
           style: const TextStyle(color: _darkGreen),
@@ -491,11 +473,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(26),
         boxShadow: const [
-          BoxShadow(
-            color: Color(0x14000000),
-            blurRadius: 20,
-            offset: Offset(0, 10),
-          ),
+          BoxShadow(color: Color(0x14000000), blurRadius: 20, offset: Offset(0, 10)),
         ],
       ),
       child: Column(
@@ -504,19 +482,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
           Container(
             height: 52,
             width: 52,
-            decoration: const BoxDecoration(
-              color: _surfaceGreen,
-              shape: BoxShape.circle,
-            ),
+            decoration: const BoxDecoration(color: _surfaceGreen, shape: BoxShape.circle),
             child: Icon(icon, color: _darkGreen),
           ),
           const SizedBox(height: 16),
           Text(
             title,
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              color: _darkGreen,
-              fontWeight: FontWeight.w800,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleLarge?.copyWith(color: _darkGreen, fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 8),
           Text(
@@ -534,10 +508,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _buildSectionTitle(BuildContext context, String title) {
     return Text(
       title,
-      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-        color: _darkGreen,
-        fontWeight: FontWeight.w800,
-      ),
+      style: Theme.of(
+        context,
+      ).textTheme.titleLarge?.copyWith(color: _darkGreen, fontWeight: FontWeight.w800),
     );
   }
 }

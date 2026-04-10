@@ -18,9 +18,11 @@ class _CreateHouseScreenState extends State<CreateHouseScreen> {
   final HouseService _houseService = HouseService();
   final TextEditingController _houseNameController = TextEditingController();
   final TextEditingController _addressController = TextEditingController();
-  final TextEditingController _maxMembersController = TextEditingController(
-    text: '5',
-  );
+  final TextEditingController _rentTotalController = TextEditingController();
+  final TextEditingController _electricityTotalController = TextEditingController();
+  final TextEditingController _waterTotalController = TextEditingController();
+  final TextEditingController _internetTotalController = TextEditingController();
+  final TextEditingController _maxMembersController = TextEditingController(text: '5');
   final TextEditingController _descriptionController = TextEditingController();
   String? _selectedDistrict;
 
@@ -30,6 +32,10 @@ class _CreateHouseScreenState extends State<CreateHouseScreen> {
   void dispose() {
     _houseNameController.dispose();
     _addressController.dispose();
+    _rentTotalController.dispose();
+    _electricityTotalController.dispose();
+    _waterTotalController.dispose();
+    _internetTotalController.dispose();
     _maxMembersController.dispose();
     _descriptionController.dispose();
     super.dispose();
@@ -45,13 +51,17 @@ class _CreateHouseScreenState extends State<CreateHouseScreen> {
     final district = _selectedDistrict?.trim() ?? '';
     final address = _addressController.text.trim();
     final description = _descriptionController.text.trim();
+    final rentTotalStr = _rentTotalController.text.trim();
+    final electricityTotalStr = _electricityTotalController.text.trim();
+    final waterTotalStr = _waterTotalController.text.trim();
+    final internetTotalStr = _internetTotalController.text.trim();
     final maxMembersStr = _maxMembersController.text.trim();
 
     // Validation
     if (houseName.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a house name')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please enter a house name')));
       return;
     }
     if (district.isEmpty) {
@@ -67,6 +77,40 @@ class _CreateHouseScreenState extends State<CreateHouseScreen> {
       return;
     }
 
+    if (rentTotalStr.isEmpty ||
+        electricityTotalStr.isEmpty ||
+        waterTotalStr.isEmpty ||
+        internetTotalStr.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please fill all monthly total fields')));
+      return;
+    }
+
+    double rentTotal = 0.0;
+    double electricityTotal = 0.0;
+    double waterTotal = 0.0;
+    double internetTotal = 0.0;
+
+    try {
+      rentTotal = double.parse(rentTotalStr);
+      electricityTotal = double.parse(electricityTotalStr);
+      waterTotal = double.parse(waterTotalStr);
+      internetTotal = double.parse(internetTotalStr);
+    } catch (_) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please enter valid numeric cost values')));
+      return;
+    }
+
+    if (rentTotal < 0 || electricityTotal < 0 || waterTotal < 0 || internetTotal < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cost values must be greater than or equal to 0')),
+      );
+      return;
+    }
+
     int maxMembers = 5;
     if (maxMembersStr.isEmpty) {
       ScaffoldMessenger.of(
@@ -77,16 +121,16 @@ class _CreateHouseScreenState extends State<CreateHouseScreen> {
 
     try {
       maxMembers = int.parse(maxMembersStr);
-      if (maxMembers <= 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Max members must be greater than 0')),
-        );
+      if (maxMembers < 1) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Max members must be at least 1')));
         return;
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a valid number')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please enter a valid number')));
       return;
     }
 
@@ -97,6 +141,10 @@ class _CreateHouseScreenState extends State<CreateHouseScreen> {
         city: city,
         district: district,
         address: address,
+        rentTotal: rentTotal,
+        electricityTotal: electricityTotal,
+        waterTotal: waterTotal,
+        internetTotal: internetTotal,
         maxMembers: maxMembers,
         description: description,
       );
@@ -152,11 +200,7 @@ class _CreateHouseScreenState extends State<CreateHouseScreen> {
                     color: Colors.white.withValues(alpha: 0.96),
                     borderRadius: BorderRadius.circular(30),
                     boxShadow: const [
-                      BoxShadow(
-                        color: Color(0x22000000),
-                        blurRadius: 24,
-                        offset: Offset(0, 14),
-                      ),
+                      BoxShadow(color: Color(0x22000000), blurRadius: 24, offset: Offset(0, 14)),
                     ],
                   ),
                   child: Column(
@@ -182,20 +226,15 @@ class _CreateHouseScreenState extends State<CreateHouseScreen> {
                           color: _surfaceGreen,
                           shape: BoxShape.circle,
                         ),
-                        child: const Icon(
-                          Icons.home_work_outlined,
-                          size: 36,
-                          color: _darkGreen,
-                        ),
+                        child: const Icon(Icons.home_work_outlined, size: 36, color: _darkGreen),
                       ),
                       const SizedBox(height: 24),
                       Text(
                         'Create a house',
-                        style: Theme.of(context).textTheme.headlineMedium
-                            ?.copyWith(
-                              fontWeight: FontWeight.w800,
-                              color: _darkGreen,
-                            ),
+                        style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: _darkGreen,
+                        ),
                       ),
                       const SizedBox(height: 8),
                       Text(
@@ -212,35 +251,24 @@ class _CreateHouseScreenState extends State<CreateHouseScreen> {
                         decoration: InputDecoration(
                           labelText: 'House name',
                           hintText: 'e.g. Greenview Apartment',
-                          prefixIcon: const Icon(
-                            Icons.meeting_room_outlined,
-                            color: _darkGreen,
-                          ),
+                          prefixIcon: const Icon(Icons.meeting_room_outlined, color: _darkGreen),
                           labelStyle: const TextStyle(
                             color: _darkGreen,
                             fontWeight: FontWeight.w600,
                           ),
-                          hintStyle: TextStyle(
-                            color: _darkGreen.withValues(alpha: 0.45),
-                          ),
+                          hintStyle: TextStyle(color: _darkGreen.withValues(alpha: 0.45)),
                         ),
                       ),
                       const SizedBox(height: 16),
                       Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 12,
-                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                         decoration: BoxDecoration(
                           color: _surfaceGreen,
                           borderRadius: BorderRadius.circular(14),
                         ),
                         child: Row(
                           children: [
-                            const Icon(
-                              Icons.location_city_outlined,
-                              color: _darkGreen,
-                            ),
+                            const Icon(Icons.location_city_outlined, color: _darkGreen),
                             const SizedBox(width: 10),
                             Text(
                               'City: $bartinMerkezCity',
@@ -254,13 +282,11 @@ class _CreateHouseScreenState extends State<CreateHouseScreen> {
                       ),
                       const SizedBox(height: 16),
                       DropdownButtonFormField<String>(
-                        value: _selectedDistrict,
+                        initialValue: _selectedDistrict,
                         items: bartinMerkezMahalleleri
                             .map(
-                              (mahalle) => DropdownMenuItem<String>(
-                                value: mahalle,
-                                child: Text(mahalle),
-                              ),
+                              (mahalle) =>
+                                  DropdownMenuItem<String>(value: mahalle, child: Text(mahalle)),
                             )
                             .toList(),
                         onChanged: _loading
@@ -270,10 +296,7 @@ class _CreateHouseScreenState extends State<CreateHouseScreen> {
                               },
                         decoration: const InputDecoration(
                           labelText: 'Mahalle',
-                          prefixIcon: Icon(
-                            Icons.map_outlined,
-                            color: _darkGreen,
-                          ),
+                          prefixIcon: Icon(Icons.map_outlined, color: _darkGreen),
                         ),
                       ),
                       const SizedBox(height: 16),
@@ -283,19 +306,74 @@ class _CreateHouseScreenState extends State<CreateHouseScreen> {
                         decoration: InputDecoration(
                           labelText: 'Address',
                           hintText: 'e.g. 123 Main Street, Apt 4B',
-                          prefixIcon: const Icon(
-                            Icons.location_on_outlined,
-                            color: _darkGreen,
-                          ),
+                          prefixIcon: const Icon(Icons.location_on_outlined, color: _darkGreen),
                           labelStyle: const TextStyle(
                             color: _darkGreen,
                             fontWeight: FontWeight.w600,
                           ),
-                          hintStyle: TextStyle(
-                            color: _darkGreen.withValues(alpha: 0.45),
-                          ),
+                          hintStyle: TextStyle(color: _darkGreen.withValues(alpha: 0.45)),
                         ),
                         maxLines: 2,
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _rentTotalController,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: InputDecoration(
+                          labelText: 'Total Rent (monthly for entire house)',
+                          hintText: 'e.g. 14000',
+                          prefixIcon: const Icon(Icons.payments_outlined, color: _darkGreen),
+                          labelStyle: const TextStyle(
+                            color: _darkGreen,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          hintStyle: TextStyle(color: _darkGreen.withValues(alpha: 0.45)),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _electricityTotalController,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: InputDecoration(
+                          labelText: 'Total Electricity (monthly)',
+                          hintText: 'e.g. 1200',
+                          prefixIcon: const Icon(Icons.bolt_outlined, color: _darkGreen),
+                          labelStyle: const TextStyle(
+                            color: _darkGreen,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          hintStyle: TextStyle(color: _darkGreen.withValues(alpha: 0.45)),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _waterTotalController,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: InputDecoration(
+                          labelText: 'Total Water (monthly)',
+                          hintText: 'e.g. 600',
+                          prefixIcon: const Icon(Icons.water_drop_outlined, color: _darkGreen),
+                          labelStyle: const TextStyle(
+                            color: _darkGreen,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          hintStyle: TextStyle(color: _darkGreen.withValues(alpha: 0.45)),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _internetTotalController,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: InputDecoration(
+                          labelText: 'Total Internet/WiFi (monthly)',
+                          hintText: 'e.g. 450',
+                          prefixIcon: const Icon(Icons.wifi_rounded, color: _darkGreen),
+                          labelStyle: const TextStyle(
+                            color: _darkGreen,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          hintStyle: TextStyle(color: _darkGreen.withValues(alpha: 0.45)),
+                        ),
                       ),
                       const SizedBox(height: 16),
                       // Max Members
@@ -303,19 +381,14 @@ class _CreateHouseScreenState extends State<CreateHouseScreen> {
                         controller: _maxMembersController,
                         keyboardType: TextInputType.number,
                         decoration: InputDecoration(
-                          labelText: 'Max members',
-                          hintText: '5',
-                          prefixIcon: const Icon(
-                            Icons.groups_outlined,
-                            color: _darkGreen,
-                          ),
+                          labelText: 'Max Members (number of people the house supports)',
+                          hintText: 'e.g. 5',
+                          prefixIcon: const Icon(Icons.groups_outlined, color: _darkGreen),
                           labelStyle: const TextStyle(
                             color: _darkGreen,
                             fontWeight: FontWeight.w600,
                           ),
-                          hintStyle: TextStyle(
-                            color: _darkGreen.withValues(alpha: 0.45),
-                          ),
+                          hintStyle: TextStyle(color: _darkGreen.withValues(alpha: 0.45)),
                         ),
                       ),
                       const SizedBox(height: 16),
@@ -325,56 +398,40 @@ class _CreateHouseScreenState extends State<CreateHouseScreen> {
                         decoration: InputDecoration(
                           labelText: 'Description (optional)',
                           hintText: 'e.g. Cozy apartment near campus',
-                          prefixIcon: const Icon(
-                            Icons.description_outlined,
-                            color: _darkGreen,
-                          ),
+                          prefixIcon: const Icon(Icons.description_outlined, color: _darkGreen),
                           labelStyle: const TextStyle(
                             color: _darkGreen,
                             fontWeight: FontWeight.w600,
                           ),
-                          hintStyle: TextStyle(
-                            color: _darkGreen.withValues(alpha: 0.45),
-                          ),
+                          hintStyle: TextStyle(color: _darkGreen.withValues(alpha: 0.45)),
                         ),
                         maxLines: 3,
                       ),
                       const SizedBox(height: 28),
                       _loading
-                          ? const Center(
-                              child: CircularProgressIndicator(
-                                color: _darkGreen,
-                              ),
-                            )
+                          ? const Center(child: CircularProgressIndicator(color: _darkGreen))
                           : ElevatedButton(
                               onPressed: _createHouse,
                               child: const Text('Create House'),
                             ),
                       const SizedBox(height: 18),
                       Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 14,
-                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                         decoration: BoxDecoration(
                           color: _surfaceGreen,
                           borderRadius: BorderRadius.circular(18),
                         ),
                         child: Row(
                           children: [
-                            const Icon(
-                              Icons.groups_2_outlined,
-                              color: _darkGreen,
-                            ),
+                            const Icon(Icons.groups_2_outlined, color: _darkGreen),
                             const SizedBox(width: 12),
                             Expanded(
                               child: Text(
                                 'Your house will be saved in Firestore with you as leader. Address is private to members only.',
-                                style: Theme.of(context).textTheme.bodyMedium
-                                    ?.copyWith(
-                                      color: _darkGreen.withValues(alpha: 0.8),
-                                      fontWeight: FontWeight.w500,
-                                    ),
+                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  color: _darkGreen.withValues(alpha: 0.8),
+                                  fontWeight: FontWeight.w500,
+                                ),
                               ),
                             ),
                           ],

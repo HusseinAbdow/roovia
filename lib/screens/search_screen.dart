@@ -36,6 +36,8 @@ class _SearchScreenState extends State<SearchScreen> {
   String _searchQuery = '';
   String? _selectedMahalle;
 
+  String _formatTry(double value) => '₺${value.toStringAsFixed(2)}';
+
   @override
   void initState() {
     super.initState();
@@ -84,9 +86,7 @@ class _SearchScreenState extends State<SearchScreen> {
         return;
       }
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Search failed: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Search failed: $e')));
       setState(() {
         _results = const [];
       });
@@ -113,9 +113,7 @@ class _SearchScreenState extends State<SearchScreen> {
       }
 
       await Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (context) => HouseDetailScreen(house: latestHouse ?? house),
-        ),
+        MaterialPageRoute(builder: (context) => HouseDetailScreen(house: latestHouse ?? house)),
       );
     } catch (e) {
       if (!mounted) {
@@ -134,9 +132,9 @@ class _SearchScreenState extends State<SearchScreen> {
   Future<void> _requestToJoin(House house) async {
     final currentUserId = _auth.currentUser?.uid;
     if (currentUserId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('You must be signed in to request join.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('You must be signed in to request join.')));
       return;
     }
 
@@ -146,18 +144,13 @@ class _SearchScreenState extends State<SearchScreen> {
 
     setState(() => _joiningHouseIds.add(house.houseId));
     try {
-      await _houseService.createJoinRequest(
-        houseId: house.houseId,
-        userId: currentUserId,
-      );
+      await _houseService.createJoinRequest(houseId: house.houseId, userId: currentUserId);
 
       if (!mounted) {
         return;
       }
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Request sent')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Request sent')));
     } catch (e) {
       if (!mounted) {
         return;
@@ -165,9 +158,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
       final message = (e is StateError ? e.message : e).toString();
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
     } finally {
       if (mounted) {
         setState(() => _joiningHouseIds.remove(house.houseId));
@@ -178,9 +169,9 @@ class _SearchScreenState extends State<SearchScreen> {
   Future<void> _joinWithCode() async {
     final currentUserId = _auth.currentUser?.uid;
     if (currentUserId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('You must be signed in to join a house.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('You must be signed in to join a house.')));
       return;
     }
 
@@ -190,9 +181,9 @@ class _SearchScreenState extends State<SearchScreen> {
 
     final code = _inviteCodeController.text.trim();
     if (code.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter an invite code.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please enter an invite code.')));
       return;
     }
 
@@ -205,18 +196,14 @@ class _SearchScreenState extends State<SearchScreen> {
       }
 
       _inviteCodeController.clear();
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Request sent')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Request sent')));
     } catch (e) {
       if (!mounted) {
         return;
       }
 
       final message = (e is StateError ? e.message : e).toString();
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
     } finally {
       if (mounted) {
         setState(() => _isJoiningByCode = false);
@@ -264,10 +251,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   Expanded(
                     child: Text(
                       bartinMerkezCity,
-                      style: const TextStyle(
-                        color: _darkGreen,
-                        fontWeight: FontWeight.w700,
-                      ),
+                      style: const TextStyle(color: _darkGreen, fontWeight: FontWeight.w700),
                     ),
                   ),
                 ],
@@ -275,18 +259,12 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
             const SizedBox(height: 10),
             DropdownButtonFormField<String>(
-              value: _selectedMahalle,
+              initialValue: _selectedMahalle,
               isExpanded: true,
               items: [
-                const DropdownMenuItem<String>(
-                  value: null,
-                  child: Text('All Mahalleler'),
-                ),
+                const DropdownMenuItem<String>(value: null, child: Text('All Mahalleler')),
                 ...bartinMerkezMahalleleri.map(
-                  (mahalle) => DropdownMenuItem<String>(
-                    value: mahalle,
-                    child: Text(mahalle),
-                  ),
+                  (mahalle) => DropdownMenuItem<String>(value: mahalle, child: Text(mahalle)),
                 ),
               ],
               onChanged: (value) {
@@ -321,17 +299,10 @@ class _SearchScreenState extends State<SearchScreen> {
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(999),
-      ),
+      decoration: BoxDecoration(color: background, borderRadius: BorderRadius.circular(999)),
       child: Text(
         requestStatus,
-        style: TextStyle(
-          color: foreground,
-          fontWeight: FontWeight.w700,
-          fontSize: 12,
-        ),
+        style: TextStyle(color: foreground, fontWeight: FontWeight.w700, fontSize: 12),
       ),
     );
   }
@@ -342,8 +313,7 @@ class _SearchScreenState extends State<SearchScreen> {
     final hasPending = requestStatus == JoinRequestStatus.pending;
     final isAccepted = requestStatus == JoinRequestStatus.accepted;
     final isFull = house.members.length >= house.maxMembers;
-    final shouldDisableRequest =
-        isJoining || hasPending || isAccepted || isFull;
+    final shouldDisableRequest = isJoining || hasPending || isAccepted || isFull;
 
     String buttonLabel = 'Request to Join';
     if (hasPending) {
@@ -354,9 +324,7 @@ class _SearchScreenState extends State<SearchScreen> {
       buttonLabel = 'House Full';
     }
 
-    final locationText = house.district.isEmpty
-        ? house.city
-        : '${house.city} • ${house.district}';
+    final locationText = house.district.isEmpty ? house.city : '${house.city} • ${house.district}';
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -370,10 +338,9 @@ class _SearchScreenState extends State<SearchScreen> {
           children: [
             Text(
               house.name,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: _darkGreen,
-                fontWeight: FontWeight.w800,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(color: _darkGreen, fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 8),
             Wrap(
@@ -381,10 +348,7 @@ class _SearchScreenState extends State<SearchScreen> {
               runSpacing: 8,
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
                     color: _surfaceGreen,
                     borderRadius: BorderRadius.circular(999),
@@ -410,10 +374,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
                     color: _surfaceGreen,
                     borderRadius: BorderRadius.circular(999),
@@ -437,19 +398,56 @@ class _SearchScreenState extends State<SearchScreen> {
                 house.description,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: const Color(0xFF46635A),
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(color: const Color(0xFF46635A)),
               ),
             ],
+            const SizedBox(height: 10),
+            Text(
+              'Total Rent: ${_formatTry(house.rentTotal)}',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: const Color(0xFF2E4D43),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Electricity: ${_formatTry(house.electricityTotal)}',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: const Color(0xFF2E4D43),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Water: ${_formatTry(house.waterTotal)}',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: const Color(0xFF2E4D43),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Internet: ${_formatTry(house.internetTotal)}',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: const Color(0xFF2E4D43),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Estimated per-person monthly cost: ${_formatTry(house.perPersonMonthlyCost)}',
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: _darkGreen, fontWeight: FontWeight.w800),
+            ),
             const SizedBox(height: 12),
             Row(
               children: [
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: isOpening
-                        ? null
-                        : () => _openHouseDetails(house),
+                    onPressed: isOpening ? null : () => _openHouseDetails(house),
                     icon: isOpening
                         ? const SizedBox(
                             width: 16,
@@ -463,17 +461,12 @@ class _SearchScreenState extends State<SearchScreen> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: ElevatedButton(
-                    onPressed: shouldDisableRequest
-                        ? null
-                        : () => _requestToJoin(house),
+                    onPressed: shouldDisableRequest ? null : () => _requestToJoin(house),
                     child: isJoining
                         ? const SizedBox(
                             width: 18,
                             height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                           )
                         : Text(buttonLabel),
                   ),
@@ -498,10 +491,9 @@ class _SearchScreenState extends State<SearchScreen> {
           children: [
             Text(
               'Join with Code',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: _darkGreen,
-                fontWeight: FontWeight.w800,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(color: _darkGreen, fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 10),
             TextField(
@@ -521,10 +513,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     ? const SizedBox(
                         width: 18,
                         height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                       )
                     : const Text('Join House'),
               ),
@@ -545,12 +534,10 @@ class _SearchScreenState extends State<SearchScreen> {
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Text(
-          hasFilters
-              ? 'No houses found for current filters.'
-              : 'No houses found.',
-          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-            color: _darkGreen.withValues(alpha: 0.75),
-          ),
+          hasFilters ? 'No houses found for current filters.' : 'No houses found.',
+          style: Theme.of(
+            context,
+          ).textTheme.bodyLarge?.copyWith(color: _darkGreen.withValues(alpha: 0.75)),
         ),
       ),
     );
@@ -576,11 +563,7 @@ class _SearchScreenState extends State<SearchScreen> {
                         if (_isSearching)
                           const Padding(
                             padding: EdgeInsets.symmetric(vertical: 16),
-                            child: Center(
-                              child: CircularProgressIndicator(
-                                color: _darkGreen,
-                              ),
-                            ),
+                            child: Center(child: CircularProgressIndicator(color: _darkGreen)),
                           ),
                         if (hasNoResults) _buildNoResultsCard(),
                         ..._results.map((house) => _buildResultCard(house)),
@@ -590,13 +573,10 @@ class _SearchScreenState extends State<SearchScreen> {
                       ],
                     )
                   : StreamBuilder<List<JoinRequest>>(
-                      stream: _houseService.watchJoinRequestsForUser(
-                        currentUserId,
-                      ),
+                      stream: _houseService.watchJoinRequestsForUser(currentUserId),
                       builder: (context, requestSnapshot) {
                         final statusByHouseId = <String, String>{};
-                        final requests =
-                            requestSnapshot.data ?? const <JoinRequest>[];
+                        final requests = requestSnapshot.data ?? const <JoinRequest>[];
                         for (final request in requests) {
                           statusByHouseId[request.houseId] = request.status;
                         }
@@ -606,11 +586,7 @@ class _SearchScreenState extends State<SearchScreen> {
                             if (_isSearching)
                               const Padding(
                                 padding: EdgeInsets.symmetric(vertical: 16),
-                                child: Center(
-                                  child: CircularProgressIndicator(
-                                    color: _darkGreen,
-                                  ),
-                                ),
+                                child: Center(child: CircularProgressIndicator(color: _darkGreen)),
                               ),
                             if (hasNoResults) _buildNoResultsCard(),
                             ..._results.map(
@@ -649,11 +625,7 @@ class _SearchTag extends StatelessWidget {
       ),
       child: Text(
         text,
-        style: const TextStyle(
-          color: Color(0xFF8B3B2C),
-          fontWeight: FontWeight.w700,
-          fontSize: 12,
-        ),
+        style: const TextStyle(color: Color(0xFF8B3B2C), fontWeight: FontWeight.w700, fontSize: 12),
       ),
     );
   }

@@ -1,0 +1,62 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function isHouseLeader(houseId) {
+      return signedIn() &&
+          exists(/databases/$(database)/documents/houses/$(houseId)) &&
+          get(/databases/$(database)/documents/houses/$(houseId)).data.leaderId == request.auth.uid;
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn();
+      allow create, update, delete: if isSelf(uid);
+    }
+
+    match /houses/{houseId} {
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+          && request.resource.data.leaderId == request.auth.uid
+          && request.resource.data.members is list
+          && request.resource.data.members.size() == 1
+          && request.resource.data.members[0] == request.auth.uid
+          && request.resource.data.houseId is string
+          && request.resource.data.name is string
+          && request.resource.data.inviteCode is string
+          && request.resource.data.discoverable is bool;
+
+      allow update, delete: if signedIn() && resource.data.leaderId == request.auth.uid;
+    }
+
+    match /join_requests/{requestId} {
+      allow create: if signedIn()
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.status == "pending"
+          && request.resource.data.houseId is string;
+
+      allow read: if signedIn() &&
+          (resource.data.userId == request.auth.uid ||
+          isHouseLeader(resource.data.houseId));
+
+      allow update: if signedIn() && isHouseLeader(resource.data.houseId);
+
+      allow delete: if signedIn() &&
+          (resource.data.userId == request.auth.uid || isHouseLeader(resource.data.houseId));
+    }
+
+    match /house_chats/{houseId}/messages/{messageId} {
+      allow read, write: if request.auth != null
+          && exists(/databases/$(database)/documents/houses/$(houseId))
+          && request.auth.uid in get(/databases/$(database)/documents/houses/$(houseId)).data.members;
+    }
+  }
+}

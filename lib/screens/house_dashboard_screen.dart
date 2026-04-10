@@ -8,6 +8,7 @@ import '../models/house_model.dart';
 import '../models/join_request_model.dart';
 import '../services/auth_service.dart';
 import '../services/house_service.dart';
+import 'chat_screen.dart';
 import 'create_house_screen.dart';
 import 'login_screen.dart';
 
@@ -18,8 +19,7 @@ class HouseDashboardScreen extends StatefulWidget {
   State<HouseDashboardScreen> createState() => _HouseDashboardScreenState();
 }
 
-class _HouseDashboardScreenState extends State<HouseDashboardScreen>
-    with WidgetsBindingObserver {
+class _HouseDashboardScreenState extends State<HouseDashboardScreen> with WidgetsBindingObserver {
   static const _darkGreen = Color(0xFF0B3D2E);
   static const _lightGreen = Color(0xFFB9E8C9);
   static const _surfaceGreen = Color(0xFFE9F7EE);
@@ -32,6 +32,8 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen>
   bool _streamWaitingTimedOut = false;
   bool _isDeletingHouse = false;
   final Set<String> _processingRequestIds = <String>{};
+
+  String _formatTry(double value) => '₺${value.toStringAsFixed(2)}';
 
   @override
   void initState() {
@@ -95,10 +97,7 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen>
           ),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Done'),
-          ),
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Done')),
         ],
       ),
     );
@@ -113,9 +112,7 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen>
         return;
       }
 
-      debugPrint(
-        'HouseDashboardScreen stream waiting timeout reached, showing fallback UI',
-      );
+      debugPrint('HouseDashboardScreen stream waiting timeout reached, showing fallback UI');
       setState(() => _streamWaitingTimedOut = true);
     });
   }
@@ -126,9 +123,9 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen>
     ).push<bool>(MaterialPageRoute(builder: (_) => const CreateHouseScreen()));
 
     if (created == true && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('House created successfully.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('House created successfully.')));
     }
   }
 
@@ -153,9 +150,7 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen>
         return;
       }
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Could not sign out: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not sign out: $e')));
     }
   }
 
@@ -196,18 +191,14 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen>
         return;
       }
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('House deleted')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('House deleted')));
     } catch (e) {
       if (!mounted) {
         return;
       }
 
       final message = (e is StateError ? e.message : e).toString();
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
     } finally {
       if (mounted) {
         setState(() => _isDeletingHouse = false);
@@ -215,39 +206,29 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen>
     }
   }
 
-  Future<void> _handleJoinRequest(
-    JoinRequest request, {
-    required bool approve,
-  }) async {
+  Future<void> _handleJoinRequest(JoinRequest request, {required bool approve}) async {
     if (_processingRequestIds.contains(request.id)) {
       return;
     }
 
     setState(() => _processingRequestIds.add(request.id));
     try {
-      await _houseService.respondToJoinRequest(
-        requestId: request.id,
-        approve: approve,
-      );
+      await _houseService.respondToJoinRequest(requestId: request.id, approve: approve);
 
       if (!mounted) {
         return;
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(approve ? 'Request approved' : 'Request rejected'),
-        ),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(approve ? 'Request approved' : 'Request rejected')));
     } catch (e) {
       if (!mounted) {
         return;
       }
 
       final message = (e is StateError ? e.message : e).toString();
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
     } finally {
       if (mounted) {
         setState(() => _processingRequestIds.remove(request.id));
@@ -291,15 +272,11 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen>
                 );
               }
 
-              if (snapshot.connectionState == ConnectionState.waiting &&
-                  !_streamWaitingTimedOut) {
-                return const Center(
-                  child: CircularProgressIndicator(color: Colors.white),
-                );
+              if (snapshot.connectionState == ConnectionState.waiting && !_streamWaitingTimedOut) {
+                return const Center(child: CircularProgressIndicator(color: Colors.white));
               }
 
-              if (snapshot.connectionState == ConnectionState.waiting &&
-                  _streamWaitingTimedOut) {
+              if (snapshot.connectionState == ConnectionState.waiting && _streamWaitingTimedOut) {
                 return _buildShell(
                   context,
                   child: _buildInfoCard(
@@ -319,9 +296,7 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen>
               final house = snapshot.data;
               return _buildShell(
                 context,
-                child: house == null
-                    ? _buildEmptyState(context)
-                    : _buildHouseView(context, house),
+                child: house == null ? _buildEmptyState(context) : _buildHouseView(context, house),
               );
             },
           ),
@@ -343,18 +318,17 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen>
                   children: [
                     Text(
                       'Roovia House',
-                      style: Theme.of(context).textTheme.headlineSmall
-                          ?.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w800,
-                          ),
+                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                     const SizedBox(height: 6),
                     Text(
                       'Manage your shared home responsibilities in one place.',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Colors.white.withValues(alpha: 0.85),
-                      ),
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodyMedium?.copyWith(color: Colors.white.withValues(alpha: 0.85)),
                     ),
                   ],
                 ),
@@ -374,10 +348,7 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen>
           child: Center(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(24),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 520),
-                child: child,
-              ),
+              child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 520), child: child),
             ),
           ),
         ),
@@ -412,11 +383,7 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen>
             color: Colors.white.withValues(alpha: 0.96),
             borderRadius: BorderRadius.circular(30),
             boxShadow: const [
-              BoxShadow(
-                color: Color(0x22000000),
-                blurRadius: 24,
-                offset: Offset(0, 14),
-              ),
+              BoxShadow(color: Color(0x22000000), blurRadius: 24, offset: Offset(0, 14)),
             ],
           ),
           child: Column(
@@ -425,15 +392,8 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen>
               Container(
                 height: 74,
                 width: 74,
-                decoration: const BoxDecoration(
-                  color: _surfaceGreen,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.apartment_rounded,
-                  size: 36,
-                  color: _darkGreen,
-                ),
+                decoration: const BoxDecoration(color: _surfaceGreen, shape: BoxShape.circle),
+                child: const Icon(Icons.apartment_rounded, size: 36, color: _darkGreen),
               ),
               const SizedBox(height: 24),
               Text(
@@ -470,10 +430,59 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen>
               ),
               const SizedBox(height: 20),
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 14,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                decoration: BoxDecoration(
+                  color: _surfaceGreen,
+                  borderRadius: BorderRadius.circular(14),
                 ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Total Rent: ${_formatTry(house.rentTotal)}',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: _darkGreen,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Electricity: ${_formatTry(house.electricityTotal)}',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: _darkGreen,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Water: ${_formatTry(house.waterTotal)}',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: _darkGreen,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Internet: ${_formatTry(house.internetTotal)}',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: _darkGreen,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Estimated per-person monthly cost: ${_formatTry(house.perPersonMonthlyCost)}',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: _darkGreen,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
                 decoration: BoxDecoration(
                   color: _surfaceGreen,
                   borderRadius: BorderRadius.circular(14),
@@ -494,19 +503,16 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen>
                       children: [
                         Text(
                           house.inviteCode,
-                          style: Theme.of(context).textTheme.headlineSmall
-                              ?.copyWith(
-                                fontWeight: FontWeight.w800,
-                                color: _darkGreen,
-                                letterSpacing: 1.5,
-                              ),
+                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: _darkGreen,
+                            letterSpacing: 1.5,
+                          ),
                         ),
                         const Spacer(),
                         IconButton(
                           onPressed: () {
-                            Clipboard.setData(
-                              ClipboardData(text: house.inviteCode),
-                            );
+                            Clipboard.setData(ClipboardData(text: house.inviteCode));
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
                                 content: Text('Code copied!'),
@@ -527,17 +533,35 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen>
                 ),
               ),
               const SizedBox(height: 16),
-              ElevatedButton.icon(
-                onPressed: () => _showInviteDialog(house),
-                icon: const Icon(Icons.person_add_rounded),
-                label: const Text('Invite Member'),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () => _showInviteDialog(house),
+                      icon: const Icon(Icons.person_add_rounded),
+                      label: const Text('Invite Member'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (context) => ChatScreen(houseId: house.houseId)),
+                      ),
+                      icon: const Icon(Icons.chat_rounded),
+                      label: const Text('Chat'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _darkGreen,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ),
+                ],
               ),
               if (isOwner) ...[
                 const SizedBox(height: 10),
                 OutlinedButton.icon(
-                  onPressed: _isDeletingHouse
-                      ? null
-                      : () => _confirmAndDeleteHouse(house),
+                  onPressed: _isDeletingHouse ? null : () => _confirmAndDeleteHouse(house),
                   icon: _isDeletingHouse
                       ? const SizedBox(
                           width: 16,
@@ -545,9 +569,7 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen>
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.delete_outline_rounded),
-                  label: Text(
-                    _isDeletingHouse ? 'Deleting...' : 'Delete House',
-                  ),
+                  label: Text(_isDeletingHouse ? 'Deleting...' : 'Delete House'),
                 ),
                 const SizedBox(height: 16),
                 _buildJoinRequestsSection(house),
@@ -578,9 +600,7 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen>
                             .map(
                               (entry) => Padding(
                                 padding: EdgeInsets.only(
-                                  bottom: entry.key < house.members.length - 1
-                                      ? 8
-                                      : 0,
+                                  bottom: entry.key < house.members.length - 1 ? 8 : 0,
                                 ),
                                 child: Row(
                                   children: [
@@ -592,15 +612,11 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen>
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: Text(
-                                        namesById[entry.value] ??
-                                            'Unknown member',
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .bodySmall
-                                            ?.copyWith(
-                                              color: _darkGreen,
-                                              fontWeight: FontWeight.w500,
-                                            ),
+                                        namesById[entry.value] ?? 'Unknown member',
+                                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                          color: _darkGreen,
+                                          fontWeight: FontWeight.w500,
+                                        ),
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                     ),
@@ -615,10 +631,7 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen>
                   ],
                 ),
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 16,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                 decoration: BoxDecoration(
                   color: _surfaceGreen,
                   borderRadius: BorderRadius.circular(18),
@@ -653,11 +666,7 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen>
         color: Colors.white.withValues(alpha: 0.96),
         borderRadius: BorderRadius.circular(30),
         boxShadow: const [
-          BoxShadow(
-            color: Color(0x22000000),
-            blurRadius: 24,
-            offset: Offset(0, 14),
-          ),
+          BoxShadow(color: Color(0x22000000), blurRadius: 24, offset: Offset(0, 14)),
         ],
       ),
       child: Column(
@@ -666,19 +675,15 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen>
           Container(
             height: 74,
             width: 74,
-            decoration: const BoxDecoration(
-              color: _surfaceGreen,
-              shape: BoxShape.circle,
-            ),
+            decoration: const BoxDecoration(color: _surfaceGreen, shape: BoxShape.circle),
             child: Icon(icon, size: 36, color: _darkGreen),
           ),
           const SizedBox(height: 24),
           Text(
             title,
-            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-              fontWeight: FontWeight.w800,
-              color: _darkGreen,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800, color: _darkGreen),
           ),
           const SizedBox(height: 8),
           Text(
@@ -708,9 +713,7 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen>
               color: _surfaceGreen,
               borderRadius: BorderRadius.circular(14),
             ),
-            child: const Center(
-              child: CircularProgressIndicator(color: _darkGreen),
-            ),
+            child: const Center(child: CircularProgressIndicator(color: _darkGreen)),
           );
         }
 
@@ -746,8 +749,7 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen>
         return FutureBuilder<Map<String, String>>(
           future: _houseService.getUserNamesByIds(requesterIds),
           builder: (context, namesSnapshot) {
-            final requesterNames =
-                namesSnapshot.data ?? const <String, String>{};
+            final requesterNames = namesSnapshot.data ?? const <String, String>{};
 
             return Container(
               padding: const EdgeInsets.all(14),
@@ -767,11 +769,8 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen>
                   ),
                   const SizedBox(height: 10),
                   ...requests.map((request) {
-                    final requesterName =
-                        requesterNames[request.userId] ?? 'Unknown member';
-                    final isProcessing = _processingRequestIds.contains(
-                      request.id,
-                    );
+                    final requesterName = requesterNames[request.userId] ?? 'Unknown member';
+                    final isProcessing = _processingRequestIds.contains(request.id);
 
                     return Container(
                       margin: const EdgeInsets.only(bottom: 8),
@@ -785,11 +784,10 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen>
                         children: [
                           Text(
                             requesterName,
-                            style: Theme.of(context).textTheme.bodyLarge
-                                ?.copyWith(
-                                  color: _darkGreen,
-                                  fontWeight: FontWeight.w700,
-                                ),
+                            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                              color: _darkGreen,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                           const SizedBox(height: 8),
                           Row(
@@ -798,10 +796,7 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen>
                                 child: OutlinedButton(
                                   onPressed: isProcessing
                                       ? null
-                                      : () => _handleJoinRequest(
-                                          request,
-                                          approve: false,
-                                        ),
+                                      : () => _handleJoinRequest(request, approve: false),
                                   child: const Text('Reject'),
                                 ),
                               ),
@@ -810,10 +805,7 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen>
                                 child: ElevatedButton(
                                   onPressed: isProcessing
                                       ? null
-                                      : () => _handleJoinRequest(
-                                          request,
-                                          approve: true,
-                                        ),
+                                      : () => _handleJoinRequest(request, approve: true),
                                   child: isProcessing
                                       ? const SizedBox(
                                           width: 16,
@@ -841,17 +833,10 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen>
     );
   }
 
-  Widget _buildStatChip({
-    required IconData icon,
-    required String label,
-    required String value,
-  }) {
+  Widget _buildStatChip({required IconData icon, required String label, required String value}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: _surfaceGreen,
-        borderRadius: BorderRadius.circular(16),
-      ),
+      decoration: BoxDecoration(color: _surfaceGreen, borderRadius: BorderRadius.circular(16)),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -863,17 +848,11 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen>
             children: [
               Text(
                 label,
-                style: const TextStyle(
-                  color: _darkGreen,
-                  fontWeight: FontWeight.w600,
-                ),
+                style: const TextStyle(color: _darkGreen, fontWeight: FontWeight.w600),
               ),
               Text(
                 value,
-                style: const TextStyle(
-                  color: _darkGreen,
-                  fontWeight: FontWeight.w800,
-                ),
+                style: const TextStyle(color: _darkGreen, fontWeight: FontWeight.w800),
               ),
             ],
           ),

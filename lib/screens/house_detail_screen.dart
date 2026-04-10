@@ -24,6 +24,8 @@ class _HouseDetailScreenState extends State<HouseDetailScreen> {
   bool _isRequesting = false;
   bool _hasRequestedToJoin = false;
 
+  String _formatTry(double value) => '₺${value.toStringAsFixed(2)}';
+
   @override
   void initState() {
     super.initState();
@@ -37,13 +39,10 @@ class _HouseDetailScreenState extends State<HouseDetailScreen> {
     }
 
     try {
-      final requests = await _houseService
-          .watchJoinRequestsForUser(currentUserId)
-          .first;
+      final requests = await _houseService.watchJoinRequestsForUser(currentUserId).first;
       final hasPending = requests.any(
         (request) =>
-            request.houseId == widget.house.houseId &&
-            request.status == JoinRequestStatus.pending,
+            request.houseId == widget.house.houseId && request.status == JoinRequestStatus.pending,
       );
 
       if (!mounted) {
@@ -73,10 +72,7 @@ class _HouseDetailScreenState extends State<HouseDetailScreen> {
 
     setState(() => _isRequesting = true);
     try {
-      await _houseService.createJoinRequest(
-        houseId: widget.house.houseId,
-        userId: currentUserId,
-      );
+      await _houseService.createJoinRequest(houseId: widget.house.houseId, userId: currentUserId);
 
       if (!mounted) {
         return;
@@ -88,9 +84,7 @@ class _HouseDetailScreenState extends State<HouseDetailScreen> {
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Request sent! Waiting for house owner approval.'),
-        ),
+        const SnackBar(content: Text('Request sent! Waiting for house owner approval.')),
       );
     } catch (e) {
       if (!mounted) {
@@ -99,9 +93,7 @@ class _HouseDetailScreenState extends State<HouseDetailScreen> {
 
       setState(() => _isRequesting = false);
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Failed to request: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to request: $e')));
     }
   }
 
@@ -114,9 +106,7 @@ class _HouseDetailScreenState extends State<HouseDetailScreen> {
     final isFull = memberCount >= maxMembers;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.house.name, overflow: TextOverflow.ellipsis),
-      ),
+      appBar: AppBar(title: Text(widget.house.name, overflow: TextOverflow.ellipsis)),
       backgroundColor: const Color(0xFFF6FBF8),
       body: Align(
         alignment: Alignment.topCenter,
@@ -128,9 +118,7 @@ class _HouseDetailScreenState extends State<HouseDetailScreen> {
               Card(
                 elevation: 0,
                 color: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                ),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(
@@ -138,11 +126,10 @@ class _HouseDetailScreenState extends State<HouseDetailScreen> {
                     children: [
                       Text(
                         widget.house.name,
-                        style: Theme.of(context).textTheme.headlineSmall
-                            ?.copyWith(
-                              fontWeight: FontWeight.w800,
-                              color: _darkGreen,
-                            ),
+                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: _darkGreen,
+                        ),
                       ),
                       const SizedBox(height: 10),
                       Wrap(
@@ -154,10 +141,7 @@ class _HouseDetailScreenState extends State<HouseDetailScreen> {
                             text: '$memberCount / $maxMembers members',
                           ),
                           if (isFull)
-                            const _Pill(
-                              icon: Icons.warning_amber_rounded,
-                              text: 'House Full',
-                            ),
+                            const _Pill(icon: Icons.warning_amber_rounded, text: 'House Full'),
                         ],
                       ),
                       const SizedBox(height: 16),
@@ -183,6 +167,36 @@ class _HouseDetailScreenState extends State<HouseDetailScreen> {
                         ),
                       ],
                       const SizedBox(height: 12),
+                      _InfoRow(
+                        icon: Icons.payments_outlined,
+                        label: 'Total Rent',
+                        value: _formatTry(widget.house.rentTotal),
+                      ),
+                      const SizedBox(height: 12),
+                      _InfoRow(
+                        icon: Icons.bolt_outlined,
+                        label: 'Electricity',
+                        value: _formatTry(widget.house.electricityTotal),
+                      ),
+                      const SizedBox(height: 12),
+                      _InfoRow(
+                        icon: Icons.water_drop_outlined,
+                        label: 'Water',
+                        value: _formatTry(widget.house.waterTotal),
+                      ),
+                      const SizedBox(height: 12),
+                      _InfoRow(
+                        icon: Icons.wifi_rounded,
+                        label: 'Internet',
+                        value: _formatTry(widget.house.internetTotal),
+                      ),
+                      const SizedBox(height: 12),
+                      _InfoRow(
+                        icon: Icons.account_balance_wallet_outlined,
+                        label: 'Estimated per-person monthly cost',
+                        value: _formatTry(widget.house.perPersonMonthlyCost),
+                      ),
+                      const SizedBox(height: 12),
                       if (isMember)
                         _InfoRow(
                           icon: Icons.location_on_outlined,
@@ -191,21 +205,14 @@ class _HouseDetailScreenState extends State<HouseDetailScreen> {
                         )
                       else
                         Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 10,
-                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                           decoration: BoxDecoration(
                             color: _surfaceGreen,
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Row(
                             children: [
-                              const Icon(
-                                Icons.lock_outlined,
-                                color: _darkGreen,
-                                size: 20,
-                              ),
+                              const Icon(Icons.lock_outlined, color: _darkGreen, size: 20),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
@@ -235,9 +242,7 @@ class _HouseDetailScreenState extends State<HouseDetailScreen> {
                           width: 18,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              Colors.white,
-                            ),
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                           ),
                         )
                       : const Icon(Icons.person_add_outlined),
@@ -252,24 +257,16 @@ class _HouseDetailScreenState extends State<HouseDetailScreen> {
                     backgroundColor: _darkGreen,
                     disabledBackgroundColor: _darkGreen.withValues(alpha: 0.5),
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 24,
-                      vertical: 13,
-                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 13),
                   ),
                 ),
               if (isMember)
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 12,
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                   decoration: BoxDecoration(
                     color: _surfaceGreen,
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: _darkGreen.withValues(alpha: 0.25),
-                    ),
+                    border: Border.all(color: _darkGreen.withValues(alpha: 0.25)),
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -299,11 +296,7 @@ class _InfoRow extends StatelessWidget {
   final String label;
   final String value;
 
-  const _InfoRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
+  const _InfoRow({required this.icon, required this.label, required this.value});
 
   @override
   Widget build(BuildContext context) {
@@ -327,11 +320,7 @@ class _InfoRow extends StatelessWidget {
               const SizedBox(height: 3),
               Text(
                 value,
-                style: const TextStyle(
-                  color: Color(0xFF0B3D2E),
-                  fontSize: 14,
-                  height: 1.35,
-                ),
+                style: const TextStyle(color: Color(0xFF0B3D2E), fontSize: 14, height: 1.35),
               ),
             ],
           ),

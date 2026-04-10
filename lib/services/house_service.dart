@@ -25,8 +25,7 @@ class HouseService {
 
   bool _isMissingDefaultDbError(FirebaseException exception) {
     final message = (exception.message ?? '').toLowerCase();
-    return exception.code == 'not-found' &&
-        message.contains('database (default) does not exist');
+    return exception.code == 'not-found' && message.contains('database (default) does not exist');
   }
 
   User get _currentUser {
@@ -48,11 +47,7 @@ class HouseService {
   }
 
   String _normalizeInviteCode(String code) {
-    return code
-        .trim()
-        .toUpperCase()
-        .replaceAll(RegExp(r'\s+'), '')
-        .replaceAll('-', '');
+    return code.trim().toUpperCase().replaceAll(RegExp(r'\s+'), '').replaceAll('-', '');
   }
 
   String _normalizeSearchValue(String text) {
@@ -105,12 +100,7 @@ class HouseService {
   }
 
   List<String> _extractMembers(Map<String, dynamic> raw) {
-    final candidates = <dynamic>[
-      raw['members'],
-      raw['memberIds'],
-      raw['users'],
-      raw['userIds'],
-    ];
+    final candidates = <dynamic>[raw['members'], raw['memberIds'], raw['users'], raw['userIds']];
 
     for (final candidate in candidates) {
       if (candidate is List) {
@@ -125,11 +115,7 @@ class HouseService {
   }
 
   bool _extractDiscoverable(Map<String, dynamic> raw) {
-    final candidates = <dynamic>[
-      raw['discoverable'],
-      raw['isDiscoverable'],
-      raw['public'],
-    ];
+    final candidates = <dynamic>[raw['discoverable'], raw['isDiscoverable'], raw['public']];
 
     for (final candidate in candidates) {
       if (candidate is bool) {
@@ -165,9 +151,7 @@ class HouseService {
       _extractStringField(raw, const ['inviteCode', 'invite_code', 'code']),
     );
     if (normalizedInviteCode.isEmpty) {
-      debugPrint(
-        'HouseService.$source warning: house $docId has missing/empty inviteCode',
-      );
+      debugPrint('HouseService.$source warning: house $docId has missing/empty inviteCode');
     }
 
     final hasDiscoverableField = raw.containsKey('discoverable');
@@ -196,9 +180,7 @@ class HouseService {
 
     final normalized = <String, dynamic>{
       ...raw,
-      'houseId': (raw['houseId'] as String?)?.trim().isNotEmpty == true
-          ? raw['houseId']
-          : docId,
+      'houseId': (raw['houseId'] as String?)?.trim().isNotEmpty == true ? raw['houseId'] : docId,
       'name': normalizedName,
       'leaderId': normalizedLeaderId,
       'members': normalizedMembers,
@@ -227,11 +209,7 @@ class HouseService {
         return null;
       }
 
-      return _houseFromRawWithFallback(
-        raw,
-        snapshot.id,
-        source: 'getHouseById',
-      );
+      return _houseFromRawWithFallback(raw, snapshot.id, source: 'getHouseById');
     } on FirebaseException catch (e, stackTrace) {
       debugPrint('HouseService.getHouseById firebase error: ${e.code}');
       debugPrintStack(stackTrace: stackTrace);
@@ -242,9 +220,7 @@ class HouseService {
     } on TimeoutException catch (e, stackTrace) {
       debugPrint('HouseService.getHouseById timeout: $e');
       debugPrintStack(stackTrace: stackTrace);
-      throw StateError(
-        'Request timed out. Please check your network and try again.',
-      );
+      throw StateError('Request timed out. Please check your network and try again.');
     } catch (e, stackTrace) {
       debugPrint('HouseService.getHouseById unexpected error: $e');
       debugPrintStack(stackTrace: stackTrace);
@@ -256,35 +232,30 @@ class HouseService {
     final uid = _currentUser.uid;
     debugPrint('HouseService.getCurrentUserHouse started for uid: $uid');
 
-    return _db
-        .collection('houses')
-        .where('members', arrayContains: uid)
-        .snapshots()
-        .map((snapshot) {
-          debugPrint(
-            'HouseService.getCurrentUserHouse query result count: ${snapshot.docs.length} for uid: $uid',
-          );
+    return _db.collection('houses').where('members', arrayContains: uid).snapshots().map((
+      snapshot,
+    ) {
+      debugPrint(
+        'HouseService.getCurrentUserHouse query result count: ${snapshot.docs.length} for uid: $uid',
+      );
 
-          if (snapshot.docs.isEmpty) {
-            return null;
-          }
+      if (snapshot.docs.isEmpty) {
+        return null;
+      }
 
-          final firstHouse = _houseFromDocWithFallback(
-            snapshot.docs.first,
-            source: 'getCurrentUserHouse',
-          );
-          debugPrint(
-            'HouseService.getCurrentUserHouse first house: ${firstHouse.houseId}, members: ${firstHouse.members}, containsUid: ${firstHouse.members.contains(uid)}',
-          );
+      final firstHouse = _houseFromDocWithFallback(
+        snapshot.docs.first,
+        source: 'getCurrentUserHouse',
+      );
+      debugPrint(
+        'HouseService.getCurrentUserHouse first house: ${firstHouse.houseId}, members: ${firstHouse.members}, containsUid: ${firstHouse.members.contains(uid)}',
+      );
 
-          return firstHouse;
-        });
+      return firstHouse;
+    });
   }
 
-  Future<List<House>> searchDiscoverableHouses(
-    String query, {
-    String locationQuery = '',
-  }) async {
+  Future<List<House>> searchDiscoverableHouses(String query, {String locationQuery = ''}) async {
     final currentUserId = _currentUser.uid;
     final normalizedQuery = query.trim().toLowerCase();
     final normalizedLocationQuery = locationQuery.trim().toLowerCase();
@@ -299,10 +270,7 @@ class HouseService {
           .get()
           .timeout(_networkTimeout);
 
-      final allSnapshot = await _db
-          .collection('houses')
-          .get()
-          .timeout(_networkTimeout);
+      final allSnapshot = await _db.collection('houses').get().timeout(_networkTimeout);
       final fallbackDiscoverableDocs = allSnapshot.docs.where((doc) {
         final raw = doc.data();
         return !raw.containsKey('discoverable') || raw['discoverable'] == null;
@@ -314,12 +282,7 @@ class HouseService {
       };
 
       final discoverableHouses = mergedById.values
-          .map(
-            (doc) => _houseFromDocWithFallback(
-              doc,
-              source: 'searchDiscoverableHouses',
-            ),
-          )
+          .map((doc) => _houseFromDocWithFallback(doc, source: 'searchDiscoverableHouses'))
           .toList();
 
       final visibleHouses = discoverableHouses
@@ -343,10 +306,7 @@ class HouseService {
             : _matchesHouseName(house.name, normalizedQuery);
         final matchesLocation = normalizedLocationQuery.isEmpty
             ? true
-            : _matchesHouseName(
-                '${house.city} ${house.district}',
-                normalizedLocationQuery,
-              );
+            : _matchesHouseName('${house.city} ${house.district}', normalizedLocationQuery);
         return matchesName && matchesLocation;
       }).toList();
 
@@ -355,9 +315,7 @@ class HouseService {
       );
       return filtered;
     } on FirebaseException catch (e, stackTrace) {
-      debugPrint(
-        'HouseService.searchDiscoverableHouses firebase error: ${e.code}',
-      );
+      debugPrint('HouseService.searchDiscoverableHouses firebase error: ${e.code}');
       debugPrintStack(stackTrace: stackTrace);
       if (_isMissingDefaultDbError(e)) {
         throw _missingFirestoreDbError();
@@ -366,9 +324,7 @@ class HouseService {
     } on TimeoutException catch (e, stackTrace) {
       debugPrint('HouseService.searchDiscoverableHouses timeout: $e');
       debugPrintStack(stackTrace: stackTrace);
-      throw StateError(
-        'Request timed out. Please check your network and try again.',
-      );
+      throw StateError('Request timed out. Please check your network and try again.');
     } catch (e, stackTrace) {
       debugPrint('HouseService.searchDiscoverableHouses unexpected error: $e');
       debugPrintStack(stackTrace: stackTrace);
@@ -381,6 +337,10 @@ class HouseService {
     required String city,
     required String district,
     required String address,
+    required double rentTotal,
+    required double electricityTotal,
+    required double waterTotal,
+    required double internetTotal,
     required int maxMembers,
     String description = '',
   }) async {
@@ -402,6 +362,18 @@ class HouseService {
     if (trimmedAddress.isEmpty) {
       throw ArgumentError('Address cannot be empty');
     }
+    if (rentTotal < 0) {
+      throw ArgumentError('Total rent cannot be negative');
+    }
+    if (electricityTotal < 0) {
+      throw ArgumentError('Total electricity cannot be negative');
+    }
+    if (waterTotal < 0) {
+      throw ArgumentError('Total water cannot be negative');
+    }
+    if (internetTotal < 0) {
+      throw ArgumentError('Total internet cannot be negative');
+    }
     if (maxMembers <= 0) {
       throw ArgumentError('Max members must be greater than 0');
     }
@@ -420,6 +392,10 @@ class HouseService {
         'city': trimmedCity,
         'district': trimmedDistrict,
         'address': trimmedAddress,
+        'rentTotal': rentTotal,
+        'electricityTotal': electricityTotal,
+        'waterTotal': waterTotal,
+        'internetTotal': internetTotal,
         'maxMembers': maxMembers,
         'description': trimmedDescription,
         'createdAt': FieldValue.serverTimestamp(),
@@ -458,9 +434,7 @@ class HouseService {
     } on TimeoutException catch (e, stackTrace) {
       debugPrint('HouseService.createHouse timeout: $e');
       debugPrintStack(stackTrace: stackTrace);
-      throw StateError(
-        'Request timed out. Please check your network and try again.',
-      );
+      throw StateError('Request timed out. Please check your network and try again.');
     } catch (e, stackTrace) {
       debugPrint('HouseService.createHouse unexpected error: $e');
       debugPrintStack(stackTrace: stackTrace);
@@ -516,9 +490,7 @@ class HouseService {
 
     try {
       for (var i = 0; i < normalizedIds.length; i += chunkSize) {
-        final end = (i + chunkSize > normalizedIds.length)
-            ? normalizedIds.length
-            : i + chunkSize;
+        final end = (i + chunkSize > normalizedIds.length) ? normalizedIds.length : i + chunkSize;
         final chunk = normalizedIds.sublist(i, end);
 
         final snapshot = await _db
@@ -532,9 +504,7 @@ class HouseService {
           namesById[doc.id] = _nameFromUserData(data, doc.id);
         }
 
-        final unresolvedFromChunk = chunk
-            .where((id) => !namesById.containsKey(id))
-            .toList();
+        final unresolvedFromChunk = chunk.where((id) => !namesById.containsKey(id)).toList();
 
         if (unresolvedFromChunk.isNotEmpty) {
           final byUidFieldSnapshot = await _db
@@ -553,17 +523,11 @@ class HouseService {
           }
         }
 
-        final stillUnresolved = chunk
-            .where((id) => !namesById.containsKey(id))
-            .toList();
+        final stillUnresolved = chunk.where((id) => !namesById.containsKey(id)).toList();
 
         for (final uid in stillUnresolved) {
           try {
-            final userDoc = await _db
-                .collection('users')
-                .doc(uid)
-                .get()
-                .timeout(_networkTimeout);
+            final userDoc = await _db.collection('users').doc(uid).get().timeout(_networkTimeout);
 
             final data = userDoc.data();
             if (data != null) {
@@ -594,9 +558,7 @@ class HouseService {
     } on TimeoutException catch (e, stackTrace) {
       debugPrint('HouseService.getUserNamesByIds timeout: $e');
       debugPrintStack(stackTrace: stackTrace);
-      throw StateError(
-        'Request timed out. Please check your network and try again.',
-      );
+      throw StateError('Request timed out. Please check your network and try again.');
     } catch (e, stackTrace) {
       debugPrint('HouseService.getUserNamesByIds unexpected error: $e');
       debugPrintStack(stackTrace: stackTrace);
@@ -662,9 +624,7 @@ class HouseService {
     } on TimeoutException catch (e, stackTrace) {
       debugPrint('HouseService.deleteHouse timeout: $e');
       debugPrintStack(stackTrace: stackTrace);
-      throw StateError(
-        'Request timed out. Please check your network and try again.',
-      );
+      throw StateError('Request timed out. Please check your network and try again.');
     } catch (e, stackTrace) {
       debugPrint('HouseService.deleteHouse unexpected error: $e');
       debugPrintStack(stackTrace: stackTrace);
@@ -672,19 +632,14 @@ class HouseService {
     }
   }
 
-  Future<JoinRequest> createJoinRequest({
-    required String houseId,
-    String? userId,
-  }) async {
+  Future<JoinRequest> createJoinRequest({required String houseId, String? userId}) async {
     final trimmedHouseId = houseId.trim();
     if (trimmedHouseId.isEmpty) {
       throw ArgumentError('House ID cannot be empty');
     }
 
     try {
-      final requesterUserId = userId?.trim().isNotEmpty == true
-          ? userId!.trim()
-          : _currentUser.uid;
+      final requesterUserId = userId?.trim().isNotEmpty == true ? userId!.trim() : _currentUser.uid;
 
       final houseRef = _db.collection('houses').doc(trimmedHouseId);
       final houseSnapshot = await houseRef.get().timeout(_networkTimeout);
@@ -694,7 +649,7 @@ class HouseService {
 
       final rawHouse = houseSnapshot.data()!;
       final members = _extractMembers(rawHouse);
-      final maxMembers = rawHouse['maxMembers'] as int? ?? 5;
+      final maxMembers = rawHouse['maxMembers'] as int? ?? 1;
       if (members.length >= maxMembers) {
         throw StateError('House is full');
       }
@@ -730,13 +685,8 @@ class HouseService {
       await docRef.set(data).timeout(_networkTimeout);
 
       final snapshot = await docRef.get().timeout(_networkTimeout);
-      final createdJoinRequest = JoinRequest.fromMap(
-        docRef.id,
-        snapshot.data() ?? data,
-      );
-      debugPrint(
-        'HouseService.createJoinRequest success: ${createdJoinRequest.id}',
-      );
+      final createdJoinRequest = JoinRequest.fromMap(docRef.id, snapshot.data() ?? data);
+      debugPrint('HouseService.createJoinRequest success: ${createdJoinRequest.id}');
       return createdJoinRequest;
     } on FirebaseException catch (e, stackTrace) {
       debugPrint('HouseService.createJoinRequest firebase error: ${e.code}');
@@ -748,9 +698,7 @@ class HouseService {
     } on TimeoutException catch (e, stackTrace) {
       debugPrint('HouseService.createJoinRequest timeout: $e');
       debugPrintStack(stackTrace: stackTrace);
-      throw StateError(
-        'Request timed out. Please check your network and try again.',
-      );
+      throw StateError('Request timed out. Please check your network and try again.');
     } catch (e, stackTrace) {
       debugPrint('HouseService.createJoinRequest unexpected error: $e');
       debugPrintStack(stackTrace: stackTrace);
@@ -784,23 +732,14 @@ class HouseService {
 
       House? house;
       if (houseSnapshot.docs.isNotEmpty) {
-        house = _houseFromDocWithFallback(
-          houseSnapshot.docs.first,
-          source: 'joinByInviteCode',
-        );
+        house = _houseFromDocWithFallback(houseSnapshot.docs.first, source: 'joinByInviteCode');
         debugPrint(
           'HouseService.joinByInviteCode exact match | houseId=${house.houseId} | name=${house.name} | inviteCode=${house.inviteCode}',
         );
       } else {
-        final allSnapshot = await _db
-            .collection('houses')
-            .get()
-            .timeout(_networkTimeout);
+        final allSnapshot = await _db.collection('houses').get().timeout(_networkTimeout);
         for (final doc in allSnapshot.docs) {
-          final candidate = _houseFromDocWithFallback(
-            doc,
-            source: 'joinByInviteCode',
-          );
+          final candidate = _houseFromDocWithFallback(doc, source: 'joinByInviteCode');
           if (_normalizeInviteCode(candidate.inviteCode) == normalizedCode) {
             house = candidate;
             debugPrint(
@@ -827,8 +766,7 @@ class HouseService {
           .doc(normalizedUserId)
           .get()
           .timeout(_networkTimeout);
-      final userCurrentHouseId = (userDoc.data()?['currentHouseId'] as String?)
-          ?.trim();
+      final userCurrentHouseId = (userDoc.data()?['currentHouseId'] as String?)?.trim();
 
       if (userCurrentHouseId != null && userCurrentHouseId.isNotEmpty) {
         throw StateError('User is already in another house');
@@ -858,10 +796,7 @@ class HouseService {
         throw StateError('A pending request already exists for this house');
       }
 
-      final request = await createJoinRequest(
-        houseId: house.houseId,
-        userId: normalizedUserId,
-      );
+      final request = await createJoinRequest(houseId: house.houseId, userId: normalizedUserId);
 
       debugPrint(
         'HouseService.joinByInviteCode request created | requestId=${request.id} | houseId=${house.houseId} | userId=$normalizedUserId',
@@ -877,9 +812,7 @@ class HouseService {
     } on TimeoutException catch (e, stackTrace) {
       debugPrint('HouseService.joinByInviteCode timeout: $e');
       debugPrintStack(stackTrace: stackTrace);
-      throw StateError(
-        'Request timed out. Please check your network and try again.',
-      );
+      throw StateError('Request timed out. Please check your network and try again.');
     } catch (e, stackTrace) {
       debugPrint('HouseService.joinByInviteCode unexpected error: $e');
       debugPrintStack(stackTrace: stackTrace);
@@ -899,9 +832,8 @@ class HouseService {
         .where('status', isEqualTo: JoinRequestStatus.pending)
         .snapshots()
         .map(
-          (snapshot) => snapshot.docs
-              .map((doc) => JoinRequest.fromMap(doc.id, doc.data()))
-              .toList(),
+          (snapshot) =>
+              snapshot.docs.map((doc) => JoinRequest.fromMap(doc.id, doc.data())).toList(),
         );
   }
 
@@ -916,25 +848,19 @@ class HouseService {
         .where('userId', isEqualTo: trimmedUserId)
         .snapshots()
         .map(
-          (snapshot) => snapshot.docs
-              .map((doc) => JoinRequest.fromMap(doc.id, doc.data()))
-              .toList(),
+          (snapshot) =>
+              snapshot.docs.map((doc) => JoinRequest.fromMap(doc.id, doc.data())).toList(),
         );
   }
 
-  Future<void> respondToJoinRequest({
-    required String requestId,
-    required bool approve,
-  }) async {
+  Future<void> respondToJoinRequest({required String requestId, required bool approve}) async {
     final trimmedRequestId = requestId.trim();
     if (trimmedRequestId.isEmpty) {
       throw ArgumentError('Request ID cannot be empty');
     }
 
     final currentUserId = _currentUser.uid;
-    final targetStatus = approve
-        ? JoinRequestStatus.accepted
-        : JoinRequestStatus.rejected;
+    final targetStatus = approve ? JoinRequestStatus.accepted : JoinRequestStatus.rejected;
 
     try {
       final requestRef = _db.collection('join_requests').doc(trimmedRequestId);
@@ -946,10 +872,7 @@ class HouseService {
               throw StateError('Join request not found');
             }
 
-            final request = JoinRequest.fromMap(
-              requestSnapshot.id,
-              requestSnapshot.data()!,
-            );
+            final request = JoinRequest.fromMap(requestSnapshot.id, requestSnapshot.data()!);
 
             if (request.status != JoinRequestStatus.pending) {
               throw StateError('This request has already been handled');
@@ -975,7 +898,7 @@ class HouseService {
 
             if (approve) {
               final members = _extractMembers(rawHouse);
-              final maxMembers = rawHouse['maxMembers'] as int? ?? 5;
+              final maxMembers = rawHouse['maxMembers'] as int? ?? 1;
 
               // Check capacity before adding member
               if (members.length >= maxMembers) {
@@ -1008,9 +931,7 @@ class HouseService {
     } on TimeoutException catch (e, stackTrace) {
       debugPrint('HouseService.respondToJoinRequest timeout: $e');
       debugPrintStack(stackTrace: stackTrace);
-      throw StateError(
-        'Request timed out. Please check your network and try again.',
-      );
+      throw StateError('Request timed out. Please check your network and try again.');
     } catch (e, stackTrace) {
       debugPrint('HouseService.respondToJoinRequest unexpected error: $e');
       debugPrintStack(stackTrace: stackTrace);
