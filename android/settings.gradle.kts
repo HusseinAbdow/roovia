@@ -12,6 +12,8 @@ pluginManagement {
 
     repositories {
         google()
+        maven(url = "https://maven.google.com")
+        maven(url = "https://dl.google.com/dl/android/maven2/")
         mavenCentral()
         gradlePluginPortal()
     }
