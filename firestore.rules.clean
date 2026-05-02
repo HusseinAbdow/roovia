@@ -74,19 +74,5 @@ service cloud.firestore {
     match /house_chats/{houseId}/messages/{messageId} {
       allow read, write: if isHouseMember(houseId) || isHouseLeader(houseId);
     }
-
-    match /house_user_meta/{metaId} {
-      allow read: if signedIn()
-          && resource.data.userId == request.auth.uid
-          && resource.data.houseId is string
-          && (isHouseMember(resource.data.houseId) || isHouseLeader(resource.data.houseId));
-
-      allow create, update: if signedIn()
-          && request.resource.data.userId == request.auth.uid
-          && request.resource.data.houseId is string
-          && (isHouseMember(request.resource.data.houseId) || isHouseLeader(request.resource.data.houseId));
-
-      allow delete: if signedIn() && resource.data.userId == request.auth.uid;
-    }
   }
 }

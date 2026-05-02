@@ -32,9 +32,9 @@ class _MainScreenState extends State<MainScreen> {
     ).push<bool>(MaterialPageRoute(builder: (_) => const CreateHouseScreen()));
 
     if (created == true && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('House created successfully.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('House created successfully.')));
     }
   }
 
@@ -81,7 +81,7 @@ class _MainScreenState extends State<MainScreen> {
           BottomNavigationBarItem(
             icon: Icon(Icons.dynamic_feed_outlined),
             activeIcon: Icon(Icons.dynamic_feed_rounded),
-            label: 'Feed',
+            label: 'Home',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.search_rounded),

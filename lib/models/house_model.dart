@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class House {
   final String houseId;
   final String name;
+  final String? chatName;
   final String leaderId;
   final List<String> members;
   final String inviteCode;
@@ -21,6 +22,7 @@ class House {
   House({
     required this.houseId,
     required this.name,
+    this.chatName,
     required this.leaderId,
     required this.members,
     required this.inviteCode,
@@ -39,6 +41,14 @@ class House {
 
   double get totalHouseCost => rentTotal + electricityTotal + waterTotal + internetTotal;
 
+  String get displayChatName {
+    final normalizedChatName = chatName?.trim();
+    if (normalizedChatName != null && normalizedChatName.isNotEmpty) {
+      return normalizedChatName;
+    }
+    return '${name.trim()} Chat';
+  }
+
   double get perPersonMonthlyCost {
     final normalizedMaxMembers = maxMembers < 1 ? 1 : maxMembers;
     return totalHouseCost / normalizedMaxMembers;
@@ -50,6 +60,7 @@ class House {
     return House(
       houseId: map['houseId'] as String? ?? '',
       name: map['name'] as String? ?? '',
+      chatName: map['chatName'] as String?,
       leaderId: map['leaderId'] as String? ?? '',
       members: List<String>.from(map['members'] as List<dynamic>? ?? const []),
       inviteCode: map['inviteCode'] as String? ?? '',
@@ -75,6 +86,7 @@ class House {
     return {
       'houseId': houseId,
       'name': name,
+      if (chatName != null && chatName!.trim().isNotEmpty) 'chatName': chatName,
       'leaderId': leaderId,
       'members': members,
       'inviteCode': inviteCode,

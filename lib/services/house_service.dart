@@ -255,6 +255,31 @@ class HouseService {
     });
   }
 
+  Stream<List<House>> watchCurrentUserHouses() {
+    final uid = _currentUser.uid;
+    debugPrint('HouseService.watchCurrentUserHouses started for uid: $uid');
+
+    return _db.collection('houses').where('members', arrayContains: uid).snapshots().map((
+      snapshot,
+    ) {
+      final houses = snapshot.docs
+          .map((doc) => _houseFromDocWithFallback(doc, source: 'watchCurrentUserHouses'))
+          .toList();
+
+      houses.sort((left, right) {
+        final leftCreatedAt = left.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final rightCreatedAt = right.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return rightCreatedAt.compareTo(leftCreatedAt);
+      });
+
+      debugPrint(
+        'HouseService.watchCurrentUserHouses query result count: ${houses.length} for uid: $uid',
+      );
+
+      return houses;
+    });
+  }
+
   Future<List<House>> searchDiscoverableHouses(String query, {String locationQuery = ''}) async {
     final currentUserId = _currentUser.uid;
     final normalizedQuery = query.trim().toLowerCase();
@@ -385,6 +410,7 @@ class HouseService {
       final data = {
         'houseId': docRef.id,
         'name': trimmedName,
+        'chatName': '$trimmedName Chat',
         'leaderId': uid,
         'members': [uid],
         'inviteCode': inviteCode,
@@ -437,6 +463,59 @@ class HouseService {
       throw StateError('Request timed out. Please check your network and try again.');
     } catch (e, stackTrace) {
       debugPrint('HouseService.createHouse unexpected error: $e');
+      debugPrintStack(stackTrace: stackTrace);
+      rethrow;
+    }
+  }
+
+  Future<void> updateHouseChatName({required String houseId, required String chatName}) async {
+    final trimmedHouseId = houseId.trim();
+    final trimmedChatName = chatName.trim();
+
+    if (trimmedHouseId.isEmpty) {
+      throw ArgumentError('House ID cannot be empty');
+    }
+
+    if (trimmedChatName.isEmpty) {
+      throw ArgumentError('Chat name cannot be empty');
+    }
+
+    try {
+      final currentUserId = _currentUser.uid;
+      final houseRef = _db.collection('houses').doc(trimmedHouseId);
+      final houseSnapshot = await houseRef.get().timeout(_networkTimeout);
+
+      if (!houseSnapshot.exists || houseSnapshot.data() == null) {
+        throw StateError('House not found');
+      }
+
+      final leaderId = _extractStringField(houseSnapshot.data()!, const [
+        'leaderId',
+        'ownerId',
+        'adminId',
+        'leader_id',
+      ]);
+
+      if (leaderId != currentUserId) {
+        throw StateError('Only the house owner can rename the chat');
+      }
+
+      await houseRef
+          .update({'chatName': trimmedChatName, 'updatedAt': FieldValue.serverTimestamp()})
+          .timeout(_networkTimeout);
+    } on FirebaseException catch (e, stackTrace) {
+      debugPrint('HouseService.updateHouseChatName firebase error: ${e.code}');
+      debugPrintStack(stackTrace: stackTrace);
+      if (_isMissingDefaultDbError(e)) {
+        throw _missingFirestoreDbError();
+      }
+      rethrow;
+    } on TimeoutException catch (e, stackTrace) {
+      debugPrint('HouseService.updateHouseChatName timeout: $e');
+      debugPrintStack(stackTrace: stackTrace);
+      throw StateError('Request timed out. Please check your network and try again.');
+    } catch (e, stackTrace) {
+      debugPrint('HouseService.updateHouseChatName unexpected error: $e');
       debugPrintStack(stackTrace: stackTrace);
       rethrow;
     }
@@ -564,6 +643,131 @@ class HouseService {
       debugPrintStack(stackTrace: stackTrace);
       rethrow;
     }
+  }
+
+  Stream<int> getUnreadMessageCount(String houseId, String userId) {
+    final trimmedHouseId = houseId.trim();
+    final trimmedUserId = userId.trim();
+
+    if (trimmedHouseId.isEmpty) {
+      return Stream.error(ArgumentError('House ID cannot be empty'));
+    }
+
+    if (trimmedUserId.isEmpty) {
+      return Stream.error(ArgumentError('User ID cannot be empty'));
+    }
+
+    final metaDocId = '${trimmedHouseId}_$trimmedUserId';
+    final metaDocRef = _db.collection('house_user_meta').doc(metaDocId);
+    final messagesRef = _db.collection('house_chats').doc(trimmedHouseId).collection('messages');
+
+    late final StreamController<int> controller;
+    StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? metaSubscription;
+    StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? messageSubscription;
+
+    bool hasLoadedMeta = false;
+    bool metaDocMissing = false;
+    Timestamp? latestLastSeenAt;
+
+    int _countOtherUserMessages(Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+      return docs.where((doc) {
+        final data = doc.data();
+        final senderId = (data['senderId'] as String?)?.trim();
+        return senderId != null && senderId.isNotEmpty && senderId != trimmedUserId;
+      }).length;
+    }
+
+    void restartUnreadListener() {
+      messageSubscription?.cancel();
+      if (!hasLoadedMeta) {
+        debugPrint(
+          'HouseService.getUnreadMessageCount | houseId=$trimmedHouseId | userId=$trimmedUserId | meta not loaded yet | emitting 0',
+        );
+        if (!controller.isClosed) controller.add(0);
+        return;
+      }
+
+      // If the meta document does not exist at all, or we don't have a stable timestamp, count all messages as unread.
+      if (metaDocMissing || latestLastSeenAt == null) {
+        messageSubscription = messagesRef.orderBy('createdAt').snapshots().listen((snapshot) {
+          final unreadCount = _countOtherUserMessages(
+            snapshot.docs.where((doc) => doc.data()['createdAt'] is Timestamp),
+          );
+
+          debugPrint(
+            'HouseService.getUnreadMessageCount (meta missing) | houseId=$trimmedHouseId | userId=$trimmedUserId | unreadCount=$unreadCount',
+          );
+
+          if (!controller.isClosed) controller.add(unreadCount);
+        }, onError: controller.addError);
+        return;
+      }
+
+      // Normal case: meta exists and we have a stable lastSeenAt timestamp.
+      final query = messagesRef
+          .where('createdAt', isGreaterThan: latestLastSeenAt)
+          .orderBy('createdAt');
+
+      messageSubscription = query.snapshots().listen((snapshot) {
+        final unreadCount = _countOtherUserMessages(
+          snapshot.docs.where((doc) => doc.data()['createdAt'] is Timestamp),
+        );
+
+        debugPrint(
+          'HouseService.getUnreadMessageCount | houseId=$trimmedHouseId | userId=$trimmedUserId | lastSeenAt=$latestLastSeenAt | unreadCount=$unreadCount',
+        );
+
+        for (final doc in snapshot.docs) {
+          final createdAt = doc.data()['createdAt'];
+          debugPrint(
+            'HouseService.getUnreadMessageCount message | houseId=$trimmedHouseId | userId=$trimmedUserId | messageId=${doc.id} | createdAt=$createdAt',
+          );
+        }
+
+        if (!controller.isClosed) {
+          controller.add(unreadCount);
+        }
+      }, onError: controller.addError);
+    }
+
+    controller = StreamController<int>(
+      onListen: () {
+        metaSubscription = metaDocRef.snapshots().listen((metaSnapshot) {
+          final data = metaSnapshot.data();
+          final rawLastSeenAt = data?['lastSeenAt'];
+
+          if (rawLastSeenAt is Timestamp) {
+            latestLastSeenAt = rawLastSeenAt;
+            metaDocMissing = false;
+            hasLoadedMeta = true;
+          } else if (!metaSnapshot.exists) {
+            // No meta doc yet — treat as "meta missing" so we count all messages as unread.
+            latestLastSeenAt = null;
+            metaDocMissing = true;
+            hasLoadedMeta = true;
+          } else if (!hasLoadedMeta) {
+            // First load and meta doc exists but lastSeenAt field is missing — treat as missing.
+            latestLastSeenAt = null;
+            metaDocMissing = true;
+            hasLoadedMeta = true;
+          } else {
+            // Keep previous stable timestamp while a server timestamp write is pending.
+          }
+
+          debugPrint(
+            'HouseService.getUnreadMessageCount meta | houseId=$trimmedHouseId | userId=$trimmedUserId | lastSeenAt=$latestLastSeenAt | metaMissing=$metaDocMissing',
+          );
+
+          restartUnreadListener();
+        }, onError: controller.addError);
+      },
+      onCancel: () async {
+        await metaSubscription?.cancel();
+        await messageSubscription?.cancel();
+      },
+    );
+
+    return controller.stream;
   }
 
   Future<void> deleteHouse(String houseId) async {

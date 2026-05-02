@@ -16,6 +16,7 @@ class AuthServiceException implements Exception {
 
 class AuthService {
   static const Duration _networkTimeout = Duration(seconds: 15);
+  static final RegExp _usernameInvalidChars = RegExp(r'[^a-z0-9_]');
 
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _db = FirebaseFirestore.instance;
@@ -23,8 +24,7 @@ class AuthService {
   String _firestoreInfraErrorMessage(FirebaseException exception) {
     final message = (exception.message ?? '').toLowerCase();
     final isMissingDefaultDb =
-        exception.code == 'not-found' &&
-        message.contains('database (default) does not exist');
+        exception.code == 'not-found' && message.contains('database (default) does not exist');
 
     if (isMissingDefaultDb) {
       return 'Cloud Firestore is not set up for this Firebase project yet. Please create the default Firestore database in Firebase Console and try again.';
@@ -44,20 +44,22 @@ class AuthService {
 
       final firebaseUser = credential.user;
       if (firebaseUser == null) {
-        throw const AuthServiceException(
-          'Unable to create your account right now.',
-        );
+        throw const AuthServiceException('Unable to create your account right now.');
       }
 
       await firebaseUser.updateDisplayName(name).timeout(_networkTimeout);
 
-      final user = RooviaUser(uid: firebaseUser.uid, name: name, email: email);
+      final generatedUsername = await _generateUniqueUsernameFromEmail(email);
 
-      await _db
-          .collection('users')
-          .doc(user.uid)
-          .set(user.toMap())
-          .timeout(_networkTimeout);
+      final user = RooviaUser(
+        uid: firebaseUser.uid,
+        name: name,
+        email: email,
+        username: generatedUsername,
+        profileImageUrl: '',
+      );
+
+      await _db.collection('users').doc(user.uid).set(user.toMap()).timeout(_networkTimeout);
       debugPrint('AuthService.signUp success: ${user.uid} ($email)');
       return user;
     } on TimeoutException catch (e, stackTrace) {
@@ -111,14 +113,14 @@ class AuthService {
         final data = doc.data();
 
         if (data != null) {
-          debugPrint(
-            'AuthService.signIn success with profile: ${firebaseUser.uid}',
-          );
+          debugPrint('AuthService.signIn success with profile: ${firebaseUser.uid}');
           return RooviaUser.fromMap({
             ...data,
             'uid': data['uid'] ?? firebaseUser.uid,
             'name': data['name'] ?? fallbackUser.name,
             'email': data['email'] ?? fallbackUser.email,
+            'username': data['username'] ?? fallbackUser.username,
+            'profileImageUrl': data['profileImageUrl'] ?? fallbackUser.profileImageUrl,
           });
         }
 
@@ -128,9 +130,7 @@ class AuthService {
             .set(fallbackUser.toMap())
             .timeout(_networkTimeout);
       } on FirebaseException catch (e) {
-        debugPrint(
-          'AuthService.signIn profile sync skipped due to firestore error: ${e.code}',
-        );
+        debugPrint('AuthService.signIn profile sync skipped due to firestore error: ${e.code}');
         return fallbackUser;
       } on TimeoutException catch (e, stackTrace) {
         debugPrint('AuthService.signIn profile sync timeout: $e');
@@ -223,12 +223,76 @@ class AuthService {
   }
 
   RooviaUser _buildAuthBackedUser(User firebaseUser, String email) {
+    final prefix = email.split('@').first.toLowerCase();
+    final normalizedPrefix = prefix.replaceAll(_usernameInvalidChars, '');
+
     return RooviaUser(
       uid: firebaseUser.uid,
       name: firebaseUser.displayName?.trim().isNotEmpty == true
           ? firebaseUser.displayName!.trim()
           : email.split('@').first,
       email: firebaseUser.email ?? email,
+      username: normalizedPrefix.isNotEmpty ? normalizedPrefix : 'user000',
+      profileImageUrl: '',
+    );
+  }
+
+  Future<bool> _usernameExists(String username) async {
+    final normalizedUsername = username.trim().toLowerCase();
+    if (normalizedUsername.isEmpty) {
+      return false;
+    }
+
+    final query = await _db
+        .collection('users')
+        .where('username', isEqualTo: normalizedUsername)
+        .limit(1)
+        .get()
+        .timeout(_networkTimeout);
+
+    return query.docs.isNotEmpty;
+  }
+
+  String _normalizeUsernameBase(String input) {
+    final lowered = input.toLowerCase();
+    final withoutSymbols = lowered.replaceAll(_usernameInvalidChars, '');
+
+    if (withoutSymbols.isEmpty) {
+      return 'user';
+    }
+
+    if (withoutSymbols.length < 3) {
+      return withoutSymbols.padRight(3, '0');
+    }
+
+    if (withoutSymbols.length > 20) {
+      return withoutSymbols.substring(0, 20);
+    }
+
+    return withoutSymbols;
+  }
+
+  Future<String> _generateUniqueUsernameFromEmail(String email) async {
+    final prefix = email.split('@').first;
+    final baseUsername = _normalizeUsernameBase(prefix);
+
+    if (!await _usernameExists(baseUsername)) {
+      return baseUsername;
+    }
+
+    final seed = DateTime.now().millisecondsSinceEpoch;
+    for (var i = 0; i < 50; i++) {
+      final candidateNumber = ((seed + i * 73) % 900 + 100).toString();
+      final trimmedBase = baseUsername.length > 17 ? baseUsername.substring(0, 17) : baseUsername;
+      final candidate = '$trimmedBase$candidateNumber';
+
+      if (!await _usernameExists(candidate)) {
+        return candidate;
+      }
+    }
+
+    throw const AuthServiceException(
+      'Unable to assign a unique username right now. Please try again.',
     );
   }
 }

@@ -9,6 +9,10 @@ class ChatService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   static const Duration _networkTimeout = Duration(seconds: 30);
 
+  String _houseUserMetaDocId(String houseId, String userId) {
+    return '${houseId.trim()}_${userId.trim()}';
+  }
+
   Future<void> sendMessage({
     required String houseId,
     required String senderId,
@@ -61,6 +65,43 @@ class ChatService {
       throw StateError('Request timed out. Please check your network and try again.');
     } catch (e, stackTrace) {
       debugPrint('ChatService.sendMessage unexpected error: $e');
+      debugPrintStack(stackTrace: stackTrace);
+      rethrow;
+    }
+  }
+
+  Future<void> markChatAsSeen(String houseId, String userId) async {
+    final trimmedHouseId = houseId.trim();
+    final trimmedUserId = userId.trim();
+
+    if (trimmedHouseId.isEmpty) {
+      throw ArgumentError('House ID cannot be empty');
+    }
+
+    if (trimmedUserId.isEmpty) {
+      throw ArgumentError('User ID cannot be empty');
+    }
+
+    try {
+      await _db
+          .collection('house_user_meta')
+          .doc(_houseUserMetaDocId(trimmedHouseId, trimmedUserId))
+          .set({
+            'houseId': trimmedHouseId,
+            'userId': trimmedUserId,
+            'lastSeenAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true))
+          .timeout(_networkTimeout);
+    } on FirebaseException catch (e, stackTrace) {
+      debugPrint('ChatService.markChatAsSeen firebase error: ${e.code}');
+      debugPrintStack(stackTrace: stackTrace);
+      rethrow;
+    } on TimeoutException catch (e, stackTrace) {
+      debugPrint('ChatService.markChatAsSeen timeout: $e');
+      debugPrintStack(stackTrace: stackTrace);
+      throw StateError('Request timed out. Please check your network and try again.');
+    } catch (e, stackTrace) {
+      debugPrint('ChatService.markChatAsSeen unexpected error: $e');
       debugPrintStack(stackTrace: stackTrace);
       rethrow;
     }

@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import '../models/house_model.dart';
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
 import '../services/house_service.dart';
+import 'edit_profile_screen.dart';
 import 'login_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -28,10 +30,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   String _formatTry(double value) => '₺${value.toStringAsFixed(2)}';
 
+  String _avatarInitial(String username) {
+    final clean = username.trim();
+    if (clean.isEmpty) {
+      return 'U';
+    }
+    return clean[0].toUpperCase();
+  }
+
   Future<void> _signOut() async {
     try {
       await _authService.signOut();
-      debugPrint('Sign out success from profile');
 
       if (!mounted) {
         return;
@@ -41,15 +50,68 @@ class _ProfileScreenState extends State<ProfileScreen> {
         MaterialPageRoute(builder: (_) => const LoginScreen()),
         (route) => false,
       );
-    } catch (e, stackTrace) {
-      debugPrint('Sign out failed from profile: $e');
-      debugPrintStack(stackTrace: stackTrace);
-
+    } catch (_) {
       if (!mounted) {
         return;
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not sign out: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not sign out right now. Please try again.')),
+      );
+    }
+  }
+
+  Future<void> _openEditProfile(RooviaUser user) async {
+    final updated = await Navigator.of(
+      context,
+    ).push<bool>(MaterialPageRoute(builder: (_) => EditProfileScreen(user: user)));
+
+    if (updated == true && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Profile updated successfully.')));
+    }
+  }
+
+  String _fallbackUsername(User firebaseUser) {
+    final emailPrefix = (firebaseUser.email ?? '').split('@').first.toLowerCase();
+    final cleaned = emailPrefix.replaceAll(RegExp(r'[^a-z0-9_]'), '');
+
+    if (cleaned.length >= 3) {
+      return cleaned.length > 20 ? cleaned.substring(0, 20) : cleaned;
+    }
+
+    return 'user000';
+  }
+
+  RooviaUser _buildProfile({required User firebaseUser, required Map<String, dynamic>? rawData}) {
+    final fallback = RooviaUser(
+      uid: firebaseUser.uid,
+      name: firebaseUser.displayName?.trim().isNotEmpty == true
+          ? firebaseUser.displayName!.trim()
+          : (firebaseUser.email ?? 'Roovia User').split('@').first,
+      email: firebaseUser.email ?? 'No email available',
+      username: _fallbackUsername(firebaseUser),
+      profileImageUrl: '',
+      rating: 0.0,
+    );
+
+    if (rawData == null) {
+      return fallback;
+    }
+
+    try {
+      return RooviaUser.fromMap({
+        ...rawData,
+        'uid': rawData['uid'] ?? fallback.uid,
+        'name': rawData['name'] ?? fallback.name,
+        'email': rawData['email'] ?? fallback.email,
+        'username': rawData['username'] ?? fallback.username,
+        'profileImageUrl': rawData['profileImageUrl'] ?? fallback.profileImageUrl,
+        'rating': rawData['rating'] ?? fallback.rating,
+      });
+    } catch (_) {
+      return fallback;
     }
   }
 
@@ -69,7 +131,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 context,
                 icon: Icons.lock_outline_rounded,
                 title: 'No active account',
-                description: 'Sign in again to load your profile, house details, and ratings.',
+                description: 'Sign in again to load your profile details.',
               ),
             ),
           ),
@@ -101,19 +163,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
             builder: (context, houseSnapshot) {
               final currentHouse = houseSnapshot.data;
               final housesLivedIn = currentHouse == null ? 0 : 1;
-              final membersLivedWith = currentHouse == null
-                  ? 0
-                  : math.max(currentHouse.members.length - 1, 0);
 
               return ListView(
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
                 children: [
                   _buildProfileHeader(context, profile),
+                  const SizedBox(height: 14),
+                  ElevatedButton.icon(
+                    onPressed: () => _openEditProfile(profile),
+                    icon: const Icon(Icons.edit_outlined),
+                    label: const Text('Edit Profile'),
+                  ),
                   const SizedBox(height: 18),
                   _buildStatsSection(
                     context,
                     housesLivedIn: housesLivedIn,
-                    membersLivedWith: membersLivedWith,
                     averageRating: profile.rating,
                   ),
                   const SizedBox(height: 18),
@@ -124,10 +188,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     houseSnapshot: houseSnapshot,
                     currentHouse: currentHouse,
                   ),
-                  const SizedBox(height: 18),
-                  _buildSectionTitle(context, 'Previous Houses'),
-                  const SizedBox(height: 12),
-                  _buildPreviousHousesCard(context),
                 ],
               );
             },
@@ -137,35 +197,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  RooviaUser _buildProfile({required User firebaseUser, required Map<String, dynamic>? rawData}) {
-    final fallback = RooviaUser(
-      uid: firebaseUser.uid,
-      name: firebaseUser.displayName?.trim().isNotEmpty == true
-          ? firebaseUser.displayName!.trim()
-          : (firebaseUser.email ?? 'Roovia User').split('@').first,
-      email: firebaseUser.email ?? 'No email available',
-      rating: 0.0,
-    );
-
-    if (rawData == null) {
-      return fallback;
-    }
-
-    try {
-      return RooviaUser.fromMap({
-        ...rawData,
-        'uid': rawData['uid'] ?? fallback.uid,
-        'name': rawData['name'] ?? fallback.name,
-        'email': rawData['email'] ?? fallback.email,
-        'rating': rawData['rating'] ?? fallback.rating,
-      });
-    } catch (_) {
-      return fallback;
-    }
-  }
-
   Widget _buildProfileHeader(BuildContext context, RooviaUser user) {
-    final initial = user.name.trim().isEmpty ? 'R' : user.name.trim()[0];
+    final imageUrl = user.profileImageUrl.trim();
+    final avatarInitial = _avatarInitial(user.username);
 
     return Container(
       padding: const EdgeInsets.all(24),
@@ -178,16 +212,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
       child: Column(
         children: [
-          CircleAvatar(
-            radius: 42,
-            backgroundColor: _surfaceGreen,
-            child: Text(
-              initial.toUpperCase(),
-              style: Theme.of(
-                context,
-              ).textTheme.headlineMedium?.copyWith(color: _darkGreen, fontWeight: FontWeight.w800),
-            ),
-          ),
+          imageUrl.isNotEmpty
+              ? CircleAvatar(radius: 56, backgroundImage: CachedNetworkImageProvider(imageUrl))
+              : CircleAvatar(
+                  radius: 56,
+                  backgroundColor: _surfaceGreen,
+                  child: Text(
+                    avatarInitial,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: _darkGreen,
+                      fontSize: 28,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
           const SizedBox(height: 16),
           Text(
             user.name,
@@ -198,30 +237,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           const SizedBox(height: 6),
           Text(
-            'Roovia member',
+            '@${user.username}',
             textAlign: TextAlign.center,
             style: Theme.of(
               context,
-            ).textTheme.bodyLarge?.copyWith(color: _darkGreen.withValues(alpha: 0.72)),
-          ),
-          const SizedBox(height: 14),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: _surfaceGreen,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.star_rounded, color: Colors.amber),
-                const SizedBox(width: 8),
-                Text(
-                  'Rating ${user.rating.toStringAsFixed(1)}',
-                  style: const TextStyle(color: _darkGreen, fontWeight: FontWeight.w700),
-                ),
-              ],
-            ),
+            ).textTheme.bodyLarge?.copyWith(color: _darkGreen.withValues(alpha: 0.62)),
           ),
         ],
       ),
@@ -231,7 +251,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _buildStatsSection(
     BuildContext context, {
     required int housesLivedIn,
-    required int membersLivedWith,
     required double averageRating,
   }) {
     return Wrap(
@@ -246,13 +265,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
         _buildStatCard(
           context,
-          label: 'Members lived with',
-          value: '$membersLivedWith',
-          icon: Icons.groups_2_outlined,
-        ),
-        _buildStatCard(
-          context,
-          label: 'Average rating',
+          label: 'Rating',
           value: averageRating.toStringAsFixed(1),
           icon: Icons.star_outline_rounded,
         ),
@@ -266,10 +279,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     required String value,
     required IconData icon,
   }) {
-    final width = (MediaQuery.of(context).size.width - 64) / 3;
+    final width = (MediaQuery.of(context).size.width - 56) / 2;
 
     return ConstrainedBox(
-      constraints: BoxConstraints(minWidth: math.min(width, 160)),
+      constraints: BoxConstraints(minWidth: math.min(width, 190)),
       child: Container(
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
@@ -322,9 +335,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return _buildPlaceholderCard(
         context,
         icon: Icons.error_outline_rounded,
-        title: 'Could not load your current house',
-        description:
-            'The profile screen could not fetch house details right now. You can try again in a moment.',
+        title: 'Could not load current house',
+        description: 'Please try again in a moment.',
       );
     }
 
@@ -333,8 +345,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         context,
         icon: Icons.home_outlined,
         title: 'No current house yet',
-        description:
-            'Use the centered + button to create your first house and it will appear here.',
+        description: 'Create or join a house to see details here.',
       );
     }
 
@@ -389,37 +400,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 18),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  _buildHouseDetailChip(label: 'Members', value: '${currentHouse.members.length}'),
-                  _buildHouseDetailChip(
-                    label: 'Created',
-                    value: currentHouse.createdAt == null
-                        ? 'Pending sync'
-                        : '${currentHouse.createdAt!.year}-${currentHouse.createdAt!.month.toString().padLeft(2, '0')}-${currentHouse.createdAt!.day.toString().padLeft(2, '0')}',
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              _buildHouseDetailChip(label: 'Total Rent', value: _formatTry(currentHouse.rentTotal)),
+              const SizedBox(height: 16),
+              _buildHouseDetailChip(label: 'Members', value: '${currentHouse.members.length}'),
               const SizedBox(height: 8),
               _buildHouseDetailChip(
-                label: 'Electricity',
-                value: _formatTry(currentHouse.electricityTotal),
-              ),
-              const SizedBox(height: 8),
-              _buildHouseDetailChip(label: 'Water', value: _formatTry(currentHouse.waterTotal)),
-              const SizedBox(height: 8),
-              _buildHouseDetailChip(
-                label: 'Internet',
-                value: _formatTry(currentHouse.internetTotal),
+                label: 'Total monthly cost',
+                value: _formatTry(currentHouse.totalHouseCost),
               ),
               const SizedBox(height: 8),
               _buildHouseDetailChip(
-                label: 'Estimated per-person monthly cost',
+                label: 'Estimated per-person cost',
                 value: _formatTry(currentHouse.perPersonMonthlyCost),
               ),
             ],
@@ -448,16 +438,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildPreviousHousesCard(BuildContext context) {
-    return _buildPlaceholderCard(
-      context,
-      icon: Icons.history_rounded,
-      title: 'Previous houses will appear here',
-      description:
-          'This section is a placeholder for now. Later it can list past houses, dates, roommates, and historical ratings.',
     );
   }
 

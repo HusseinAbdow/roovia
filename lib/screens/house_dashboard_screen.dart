@@ -6,11 +6,10 @@ import 'package:flutter/services.dart';
 
 import '../models/house_model.dart';
 import '../models/join_request_model.dart';
-import '../services/auth_service.dart';
 import '../services/house_service.dart';
 import 'chat_screen.dart';
 import 'create_house_screen.dart';
-import 'login_screen.dart';
+import 'house_detail_screen.dart';
 
 class HouseDashboardScreen extends StatefulWidget {
   const HouseDashboardScreen({super.key});
@@ -19,103 +18,14 @@ class HouseDashboardScreen extends StatefulWidget {
   State<HouseDashboardScreen> createState() => _HouseDashboardScreenState();
 }
 
-class _HouseDashboardScreenState extends State<HouseDashboardScreen> with WidgetsBindingObserver {
+class _HouseDashboardScreenState extends State<HouseDashboardScreen> {
   static const _darkGreen = Color(0xFF0B3D2E);
   static const _lightGreen = Color(0xFFB9E8C9);
   static const _surfaceGreen = Color(0xFFE9F7EE);
 
   final HouseService _houseService = HouseService();
-  final AuthService _authService = AuthService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
-
-  Timer? _streamWaitingTimer;
-  bool _streamWaitingTimedOut = false;
-  bool _isDeletingHouse = false;
   final Set<String> _processingRequestIds = <String>{};
-
-  String _formatTry(double value) => '₺${value.toStringAsFixed(2)}';
-
-  @override
-  void initState() {
-    super.initState();
-    _startStreamWaitingFallbackTimer();
-  }
-
-  @override
-  void dispose() {
-    _streamWaitingTimer?.cancel();
-    super.dispose();
-  }
-
-  Future<void> _showInviteDialog(House house) async {
-    showDialog(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Invite Member'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Share this invite code with your roommates:',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE9F7EE),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFF0B3D2E), width: 2),
-                ),
-                child: Text(
-                  house.inviteCode,
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: const Color(0xFF0B3D2E),
-                    letterSpacing: 2,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton.icon(
-                onPressed: () {
-                  Clipboard.setData(ClipboardData(text: house.inviteCode));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Invite code copied to clipboard!'),
-                      duration: Duration(seconds: 2),
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.content_copy),
-                label: const Text('Copy Code'),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Done')),
-        ],
-      ),
-    );
-  }
-
-  void _startStreamWaitingFallbackTimer() {
-    _streamWaitingTimer?.cancel();
-    _streamWaitingTimedOut = false;
-
-    _streamWaitingTimer = Timer(const Duration(seconds: 8), () {
-      if (!mounted) {
-        return;
-      }
-
-      debugPrint('HouseDashboardScreen stream waiting timeout reached, showing fallback UI');
-      setState(() => _streamWaitingTimedOut = true);
-    });
-  }
 
   Future<void> _openCreateHouse() async {
     final created = await Navigator.of(
@@ -129,81 +39,127 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen> with Widget
     }
   }
 
-  Future<void> _signOut() async {
-    try {
-      await _authService.signOut();
-      debugPrint('Sign out success from house dashboard');
-
-      if (!mounted) {
-        return;
-      }
-
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-        (route) => false,
-      );
-    } catch (e, stackTrace) {
-      debugPrint('Sign out failed from house dashboard: $e');
-      debugPrintStack(stackTrace: stackTrace);
-
-      if (!mounted) {
-        return;
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not sign out: $e')));
+  String _currentUserName() {
+    final user = _auth.currentUser;
+    if (user == null) {
+      return 'there';
     }
+    final displayName = (user.displayName ?? '').trim();
+    if (displayName.isNotEmpty) {
+      return displayName;
+    }
+    final email = user.email ?? '';
+    if (email.contains('@')) {
+      return email.split('@').first;
+    }
+    return 'there';
   }
 
-  Future<void> _confirmAndDeleteHouse(House house) async {
-    if (_isDeletingHouse) {
-      return;
+  String _formatTry(double value) {
+    if (value.isNaN || value.isInfinite) {
+      return '0';
     }
 
-    final confirmed = await showDialog<bool>(
+    if (value == value.roundToDouble()) {
+      return value.toStringAsFixed(0);
+    }
+
+    return value.toStringAsFixed(2);
+  }
+
+  String _memberInitials(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      return '?';
+    }
+
+    final parts = trimmed.split(RegExp(r'\s+')).where((part) => part.isNotEmpty).toList();
+
+    if (parts.isEmpty) {
+      return trimmed.substring(0, trimmed.length >= 2 ? 2 : trimmed.length).toUpperCase();
+    }
+
+    final initials = parts.take(2).map((part) => part.isNotEmpty ? part[0] : '').join();
+
+    return initials.toUpperCase();
+  }
+
+  Future<void> _showInviteCodeDialog(House house) async {
+    await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Delete House?'),
-        content: Text(
-          'This will permanently delete "${house.name}", remove all join requests for it, and cannot be undone.',
+        title: const Text('Invite Code'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              house.inviteCode,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                color: _darkGreen,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1.5,
+              ),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: house.inviteCode));
+                Navigator.of(dialogContext).pop();
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(const SnackBar(content: Text('Invite code copied.')));
+              },
+              icon: const Icon(Icons.copy_rounded),
+              label: const Text('Copy Code'),
+            ),
+          ],
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Delete'),
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
           ),
         ],
       ),
     );
+  }
 
-    if (confirmed != true || !mounted) {
-      return;
-    }
+  Future<void> _showLocationDialog(House house) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Location'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('City: ${house.city}'),
+            if (house.district.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text('District: ${house.district}'),
+            ],
+            if (house.address.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text('Address: ${house.address}'),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
 
-    setState(() => _isDeletingHouse = true);
-    try {
-      await _houseService.deleteHouse(house.houseId);
-
-      if (!mounted) {
-        return;
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('House deleted')));
-    } catch (e) {
-      if (!mounted) {
-        return;
-      }
-
-      final message = (e is StateError ? e.message : e).toString();
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
-    } finally {
-      if (mounted) {
-        setState(() => _isDeletingHouse = false);
-      }
-    }
+  Future<void> _showMembersPlaceholder(House house) async {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Members page coming soon. Current members: ${house.members.length}')),
+    );
   }
 
   Future<void> _handleJoinRequest(JoinRequest request, {required bool approve}) async {
@@ -236,10 +192,27 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen> with Widget
     }
   }
 
+  Future<void> _showRequestsSheet(House house) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: SizedBox(
+              height: MediaQuery.of(context).size.height * 0.65,
+              child: _buildJoinRequestsSection(house),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    debugPrint('DASHBOARD BUILD');
-
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
@@ -249,453 +222,309 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen> with Widget
             colors: [_darkGreen, Color(0xFF145941), _lightGreen],
           ),
         ),
-        child: SafeArea(
-          child: StreamBuilder<House?>(
-            stream: _houseService.getCurrentUserHouse(),
-            builder: (context, snapshot) {
-              debugPrint(
-                'STREAM STATE: ${snapshot.connectionState} | hasData: ${snapshot.hasData} | hasError: ${snapshot.hasError} | data: ${snapshot.data}',
+        child: StreamBuilder<House?>(
+          stream: _houseService.getCurrentUserHouse(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator(color: _darkGreen));
+            }
+
+            if (snapshot.hasError) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'Could not load home dashboard right now.',
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 12),
+                      ElevatedButton(
+                        onPressed: _openCreateHouse,
+                        child: const Text('Create or Join House'),
+                      ),
+                    ],
+                  ),
+                ),
               );
+            }
 
-              if (snapshot.hasError) {
-                _streamWaitingTimer?.cancel();
-                return _buildShell(
-                  context,
-                  child: _buildInfoCard(
-                    context,
-                    title: 'Something went wrong',
-                    description: 'We could not load your house right now.',
-                    actionLabel: 'Try creating a house',
-                    onPressed: _openCreateHouse,
-                    icon: Icons.error_outline_rounded,
-                  ),
-                );
-              }
+            final house = snapshot.data;
+            if (house == null) {
+              return _buildEmptyState();
+            }
 
-              if (snapshot.connectionState == ConnectionState.waiting && !_streamWaitingTimedOut) {
-                return const Center(child: CircularProgressIndicator(color: Colors.white));
-              }
+            final currentUserId = _auth.currentUser?.uid ?? '';
+            final isLeader = house.leaderId == currentUserId;
+            final memberPreviewIds = house.members.take(4).toList();
 
-              if (snapshot.connectionState == ConnectionState.waiting && _streamWaitingTimedOut) {
-                return _buildShell(
-                  context,
-                  child: _buildInfoCard(
-                    context,
-                    title: 'Still loading your house',
-                    description:
-                        'House data is taking longer than expected. You can retry or create a house now.',
-                    actionLabel: 'Create House',
-                    onPressed: _openCreateHouse,
-                    icon: Icons.hourglass_bottom_rounded,
-                  ),
-                );
-              }
-
-              _streamWaitingTimer?.cancel();
-
-              final house = snapshot.data;
-              return _buildShell(
-                context,
-                child: house == null ? _buildEmptyState(context) : _buildHouseView(context, house),
-              );
-            },
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildShell(BuildContext context, {required Widget child}) {
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-          child: Row(
-            children: [
-              Expanded(
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Roovia House',
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Manage your shared home responsibilities in one place.',
-                      style: Theme.of(
-                        context,
-                      ).textTheme.bodyMedium?.copyWith(color: Colors.white.withValues(alpha: 0.85)),
-                    ),
-                  ],
-                ),
-              ),
-              IconButton(
-                onPressed: _signOut,
-                style: IconButton.styleFrom(
-                  backgroundColor: Colors.white.withValues(alpha: 0.18),
-                  foregroundColor: Colors.white,
-                ),
-                icon: const Icon(Icons.logout_rounded),
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 520), child: child),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildEmptyState(BuildContext context) {
-    return _buildInfoCard(
-      context,
-      title: 'You are not part of any house yet.',
-      description:
-          'Create your first house to start managing rent, bills, and shared responsibilities together.',
-      actionLabel: 'Create House',
-      onPressed: _openCreateHouse,
-      icon: Icons.home_work_outlined,
-    );
-  }
-
-  Widget _buildHouseView(BuildContext context, House house) {
-    return FutureBuilder<Map<String, String>>(
-      future: _houseService.getUserNamesByIds(house.members),
-      builder: (context, namesSnapshot) {
-        final namesById = namesSnapshot.data ?? const <String, String>{};
-        final currentUserId = _auth.currentUser?.uid ?? '';
-        final isOwner = house.leaderId == currentUserId;
-        final leaderName = namesById[house.leaderId] ?? 'House owner';
-
-        return Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.96),
-            borderRadius: BorderRadius.circular(30),
-            boxShadow: const [
-              BoxShadow(color: Color(0x22000000), blurRadius: 24, offset: Offset(0, 14)),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Container(
-                height: 74,
-                width: 74,
-                decoration: const BoxDecoration(color: _surfaceGreen, shape: BoxShape.circle),
-                child: const Icon(Icons.apartment_rounded, size: 36, color: _darkGreen),
-              ),
-              const SizedBox(height: 24),
-              Text(
-                house.name,
-                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: _darkGreen,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Your shared house is set up and ready for bills, payments, and roommate coordination.',
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: _darkGreen.withValues(alpha: 0.75),
-                  height: 1.45,
-                ),
-              ),
-              const SizedBox(height: 24),
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: [
-                  _buildStatChip(
-                    icon: Icons.star_outline_rounded,
-                    label: 'Leader',
-                    value: leaderName,
-                  ),
-                  _buildStatChip(
-                    icon: Icons.group_outlined,
-                    label: 'Members',
-                    value: '${house.members.length}',
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-                decoration: BoxDecoration(
-                  color: _surfaceGreen,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Total Rent: ${_formatTry(house.rentTotal)}',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: _darkGreen,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Electricity: ${_formatTry(house.electricityTotal)}',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: _darkGreen,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Water: ${_formatTry(house.waterTotal)}',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: _darkGreen,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Internet: ${_formatTry(house.internetTotal)}',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: _darkGreen,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Estimated per-person monthly cost: ${_formatTry(house.perPersonMonthlyCost)}',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: _darkGreen,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-                decoration: BoxDecoration(
-                  color: _surfaceGreen,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: _darkGreen, width: 1),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Invite Code',
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: _darkGreen.withValues(alpha: 0.7),
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        Text(
-                          house.inviteCode,
-                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                            fontWeight: FontWeight.w800,
-                            color: _darkGreen,
-                            letterSpacing: 1.5,
-                          ),
-                        ),
-                        const Spacer(),
-                        IconButton(
-                          onPressed: () {
-                            Clipboard.setData(ClipboardData(text: house.inviteCode));
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Code copied!'),
-                                duration: Duration(seconds: 2),
-                              ),
-                            );
-                          },
-                          icon: const Icon(Icons.content_copy_rounded),
-                          color: _darkGreen,
-                          tooltip: 'Copy invite code',
-                          iconSize: 20,
-                          padding: const EdgeInsets.all(8),
-                          constraints: const BoxConstraints(),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () => _showInviteDialog(house),
-                      icon: const Icon(Icons.person_add_rounded),
-                      label: const Text('Invite Member'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute(builder: (context) => ChatScreen(houseId: house.houseId)),
-                      ),
-                      icon: const Icon(Icons.chat_rounded),
-                      label: const Text('Chat'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _darkGreen,
-                        foregroundColor: Colors.white,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              if (isOwner) ...[
-                const SizedBox(height: 10),
-                OutlinedButton.icon(
-                  onPressed: _isDeletingHouse ? null : () => _confirmAndDeleteHouse(house),
-                  icon: _isDeletingHouse
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.delete_outline_rounded),
-                  label: Text(_isDeletingHouse ? 'Deleting...' : 'Delete House'),
-                ),
-                const SizedBox(height: 16),
-                _buildJoinRequestsSection(house),
-              ],
-              const SizedBox(height: 16),
-              if (house.members.isNotEmpty)
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Members (${house.members.length})',
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        color: _darkGreen,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
                     Container(
-                      padding: const EdgeInsets.all(12),
+                      width: double.infinity,
+                      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
                       decoration: BoxDecoration(
-                        color: _surfaceGreen,
-                        borderRadius: BorderRadius.circular(12),
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            Colors.white.withValues(alpha: 0.28),
+                            Colors.white.withValues(alpha: 0.14),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.36), width: 1),
+                        boxShadow: [
+                          BoxShadow(
+                            color: _darkGreen.withValues(alpha: 0.16),
+                            blurRadius: 12,
+                            offset: const Offset(0, 8),
+                          ),
+                        ],
                       ),
                       child: Column(
-                        children: house.members
-                            .asMap()
-                            .entries
-                            .map(
-                              (entry) => Padding(
-                                padding: EdgeInsets.only(
-                                  bottom: entry.key < house.members.length - 1 ? 8 : 0,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'HOME DASHBOARD',
+                            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                              color: Colors.white.withValues(alpha: 0.86),
+                              letterSpacing: 0.7,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Hello, ${_currentUserName()} 👋',
+                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            house.name,
+                            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                              fontSize: 15.5,
+                              color: Colors.white.withValues(alpha: 0.88),
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(22),
+                        border: Border.all(color: _darkGreen.withValues(alpha: 0.1)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: _darkGreen.withValues(alpha: 0.08),
+                            blurRadius: 16,
+                            offset: const Offset(0, 8),
+                          ),
+                        ],
+                      ),
+                      child: FutureBuilder<Map<String, String>>(
+                        future: _houseService.getUserNamesByIds(memberPreviewIds),
+                        builder: (context, namesSnapshot) {
+                          final memberNames = namesSnapshot.data ?? const <String, String>{};
+                          final previewMembers = memberPreviewIds
+                              .map((memberId) => memberNames[memberId] ?? memberId)
+                              .toList();
+
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                house.name,
+                                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                  color: _darkGreen,
+                                  fontWeight: FontWeight.w800,
                                 ),
-                                child: Row(
-                                  children: [
-                                    const Icon(
-                                      Icons.account_circle_rounded,
-                                      size: 24,
-                                      color: _darkGreen,
+                              ),
+                              const SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _StatusInfoTile(
+                                      label: 'Members',
+                                      value: '${house.members.length}/${house.maxMembers}',
+                                      icon: Icons.groups_rounded,
                                     ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Text(
-                                        namesById[entry.value] ?? 'Unknown member',
-                                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                          color: _darkGreen,
-                                          fontWeight: FontWeight.w500,
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: _StatusInfoTile(
+                                      label: 'Estimated per-person cost',
+                                      value: _formatTry(house.perPersonMonthlyCost),
+                                      icon: Icons.account_balance_wallet_outlined,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                'Members preview',
+                                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                                  color: _darkGreen.withValues(alpha: 0.8),
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  ...previewMembers.asMap().entries.map((entry) {
+                                    final index = entry.key;
+                                    final memberName = entry.value;
+
+                                    return Padding(
+                                      padding: EdgeInsets.only(
+                                        right: index == previewMembers.length - 1 ? 0 : 10,
+                                      ),
+                                      child: CircleAvatar(
+                                        radius: 18,
+                                        backgroundColor: index.isEven ? _darkGreen : _lightGreen,
+                                        child: Text(
+                                          _memberInitials(memberName),
+                                          style: TextStyle(
+                                            color: index.isEven ? Colors.white : _darkGreen,
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 12,
+                                          ),
                                         ),
-                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    );
+                                  }),
+                                  if (house.members.length > previewMembers.length) ...[
+                                    const SizedBox(width: 10),
+                                    CircleAvatar(
+                                      radius: 18,
+                                      backgroundColor: _surfaceGreen,
+                                      child: Text(
+                                        '+${house.members.length - previewMembers.length}',
+                                        style: const TextStyle(
+                                          color: _darkGreen,
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 11,
+                                        ),
                                       ),
                                     ),
                                   ],
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                'No recent activity',
+                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  color: _darkGreen.withValues(alpha: 0.68),
+                                  fontWeight: FontWeight.w500,
                                 ),
                               ),
-                            )
-                            .toList(),
+                            ],
+                          );
+                        },
                       ),
                     ),
                     const SizedBox(height: 16),
+                    Expanded(
+                      child: GridView.count(
+                        crossAxisCount: 2,
+                        crossAxisSpacing: 14,
+                        mainAxisSpacing: 14,
+                        childAspectRatio: 1.03,
+                        children: [
+                          UnreadBadgeBuilder(
+                            stream: currentUserId.isEmpty
+                                ? const Stream<int>.empty()
+                                : _houseService.getUnreadMessageCount(house.houseId, currentUserId),
+                            builder: (context, badgeText) {
+                              return DashboardCard(
+                                icon: Icons.chat_bubble_outline_rounded,
+                                title: 'Messages',
+                                badgeText: badgeText,
+                                onTap: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => ChatScreen(houseId: house.houseId),
+                                    ),
+                                  );
+                                },
+                              );
+                            },
+                          ),
+                          DashboardCard(
+                            icon: Icons.group_outlined,
+                            title: 'Members',
+                            onTap: () => _showMembersPlaceholder(house),
+                          ),
+                          if (isLeader)
+                            DashboardCard(
+                              icon: Icons.assignment_outlined,
+                              title: 'Requests',
+                              onTap: () => _showRequestsSheet(house),
+                            ),
+                          DashboardCard(
+                            icon: Icons.vpn_key_outlined,
+                            title: 'Invite Code',
+                            onTap: () => _showInviteCodeDialog(house),
+                          ),
+                          DashboardCard(
+                            icon: Icons.payments_outlined,
+                            title: 'Expenses',
+                            onTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(builder: (_) => HouseDetailScreen(house: house)),
+                              );
+                            },
+                          ),
+                          DashboardCard(
+                            icon: Icons.location_on_outlined,
+                            title: 'Location',
+                            onTap: () => _showLocationDialog(house),
+                          ),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                decoration: BoxDecoration(
-                  color: _surfaceGreen,
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: Text(
-                  'Next up, this dashboard can grow into rent tracking, bill splitting, payment reminders, and receipts.',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: _darkGreen.withValues(alpha: 0.82),
-                    fontWeight: FontWeight.w500,
-                    height: 1.45,
-                  ),
-                ),
               ),
-            ],
-          ),
-        );
-      },
+            );
+          },
+        ),
+      ),
     );
   }
 
-  Widget _buildInfoCard(
-    BuildContext context, {
-    required String title,
-    required String description,
-    required String actionLabel,
-    required VoidCallback onPressed,
-    required IconData icon,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.96),
-        borderRadius: BorderRadius.circular(30),
-        boxShadow: const [
-          BoxShadow(color: Color(0x22000000), blurRadius: 24, offset: Offset(0, 14)),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Container(
-            height: 74,
-            width: 74,
-            decoration: const BoxDecoration(color: _surfaceGreen, shape: BoxShape.circle),
-            child: Icon(icon, size: 36, color: _darkGreen),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            title,
-            style: Theme.of(
-              context,
-            ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800, color: _darkGreen),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            description,
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              color: _darkGreen.withValues(alpha: 0.75),
-              height: 1.45,
+  Widget _buildEmptyState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              "You're not in a house yet",
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(color: _darkGreen, fontWeight: FontWeight.w700),
+              textAlign: TextAlign.center,
             ),
-          ),
-          const SizedBox(height: 24),
-          ElevatedButton(onPressed: onPressed, child: Text(actionLabel)),
-        ],
+            const SizedBox(height: 14),
+            ElevatedButton(onPressed: _openCreateHouse, child: const Text('Create or Join House')),
+          ],
+        ),
       ),
     );
   }
@@ -707,24 +536,12 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen> with Widget
         final requests = snapshot.data ?? const <JoinRequest>[];
 
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: _surfaceGreen,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: const Center(child: CircularProgressIndicator(color: _darkGreen)),
-          );
+          return const Center(child: CircularProgressIndicator(color: _darkGreen));
         }
 
         if (snapshot.hasError) {
-          return Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: _surfaceGreen,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: const Text(
+          return const Center(
+            child: Text(
               'Could not load join requests right now.',
               style: TextStyle(color: _darkGreen, fontWeight: FontWeight.w600),
             ),
@@ -732,13 +549,8 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen> with Widget
         }
 
         if (requests.isEmpty) {
-          return Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: _surfaceGreen,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: const Text(
+          return const Center(
+            child: Text(
               'No pending join requests.',
               style: TextStyle(color: _darkGreen, fontWeight: FontWeight.w600),
             ),
@@ -751,113 +563,305 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen> with Widget
           builder: (context, namesSnapshot) {
             final requesterNames = namesSnapshot.data ?? const <String, String>{};
 
-            return Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: _surfaceGreen,
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Pending Requests (${requests.length})',
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      color: _darkGreen,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  ...requests.map((request) {
-                    final requesterName = requesterNames[request.userId] ?? 'Unknown member';
-                    final isProcessing = _processingRequestIds.contains(request.id);
+            return ListView.separated(
+              itemCount: requests.length,
+              separatorBuilder: (_, index) => const SizedBox(height: 10),
+              itemBuilder: (context, index) {
+                final request = requests[index];
+                final requesterName = requesterNames[request.userId] ?? 'Unknown member';
+                final isProcessing = _processingRequestIds.contains(request.id);
 
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
+                return Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: _surfaceGreen,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        requesterName,
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          color: _darkGreen,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      const SizedBox(height: 10),
+                      Row(
                         children: [
-                          Text(
-                            requesterName,
-                            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                              color: _darkGreen,
-                              fontWeight: FontWeight.w700,
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: isProcessing
+                                  ? null
+                                  : () => _handleJoinRequest(request, approve: false),
+                              child: const Text('Reject'),
                             ),
                           ),
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton(
-                                  onPressed: isProcessing
-                                      ? null
-                                      : () => _handleJoinRequest(request, approve: false),
-                                  child: const Text('Reject'),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: ElevatedButton(
-                                  onPressed: isProcessing
-                                      ? null
-                                      : () => _handleJoinRequest(request, approve: true),
-                                  child: isProcessing
-                                      ? const SizedBox(
-                                          width: 16,
-                                          height: 16,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                            color: Colors.white,
-                                          ),
-                                        )
-                                      : const Text('Approve'),
-                                ),
-                              ),
-                            ],
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: isProcessing
+                                  ? null
+                                  : () => _handleJoinRequest(request, approve: true),
+                              child: isProcessing
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : const Text('Approve'),
+                            ),
                           ),
                         ],
                       ),
-                    );
-                  }),
-                ],
-              ),
+                    ],
+                  ),
+                );
+              },
             );
           },
         );
       },
     );
   }
+}
 
-  Widget _buildStatChip({required IconData icon, required String label, required String value}) {
+class _StatusInfoTile extends StatelessWidget {
+  static const _darkGreen = Color(0xFF0B3D2E);
+  static const _lightGreen = Color(0xFFB9E8C9);
+
+  final String label;
+  final String value;
+  final IconData icon;
+
+  const _StatusInfoTile({required this.label, required this.value, required this.icon});
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(color: _surfaceGreen, borderRadius: BorderRadius.circular(16)),
+      decoration: BoxDecoration(
+        color: _lightGreen.withValues(alpha: 0.28),
+        borderRadius: BorderRadius.circular(16),
+      ),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: _darkGreen, size: 20),
-          const SizedBox(width: 10),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                label,
-                style: const TextStyle(color: _darkGreen, fontWeight: FontWeight.w600),
-              ),
-              Text(
-                value,
-                style: const TextStyle(color: _darkGreen, fontWeight: FontWeight.w800),
-              ),
-            ],
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+            child: Icon(icon, size: 18, color: _darkGreen),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: _darkGreen.withValues(alpha: 0.7),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleMedium?.copyWith(color: _darkGreen, fontWeight: FontWeight.w800),
+                ),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
+}
+
+class DashboardCard extends StatelessWidget {
+  static const _darkGreen = Color(0xFF0B3D2E);
+  static const _lightGreen = Color(0xFFB9E8C9);
+  static const _inkBlack = Color(0xFF111111);
+
+  final IconData icon;
+  final String title;
+  final String? badgeText;
+  final VoidCallback onTap;
+
+  const DashboardCard({
+    super.key,
+    required this.icon,
+    required this.title,
+    this.badgeText,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: onTap,
+        splashColor: _darkGreen.withValues(alpha: 0.12),
+        highlightColor: _darkGreen.withValues(alpha: 0.06),
+        child: Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFFFDFEFD), Color(0xFFF4F8F6)],
+            ),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: _darkGreen.withValues(alpha: 0.18), width: 1),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.12),
+                blurRadius: 14,
+                offset: const Offset(0, 7),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Container(
+                    width: 58,
+                    height: 58,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [Color(0xFF0E4B39), Color(0xFF0B3D2E)],
+                      ),
+                      borderRadius: BorderRadius.circular(17),
+                      border: Border.all(color: _lightGreen.withValues(alpha: 0.35)),
+                    ),
+                    child: Icon(icon, size: 28, color: Colors.white),
+                  ),
+                  if (badgeText != null)
+                    Positioned(
+                      top: -4,
+                      right: -4,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.red,
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(color: Colors.white, width: 1.5),
+                        ),
+                        constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                        child: Text(
+                          badgeText!,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            height: 1,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: _inkBlack,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.1,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class UnreadBadgeBuilder extends StatefulWidget {
+  final Stream<int> stream;
+  final Widget Function(BuildContext context, String? badgeText) builder;
+  final Duration hideDelay;
+
+  const UnreadBadgeBuilder({
+    super.key,
+    required this.stream,
+    required this.builder,
+    this.hideDelay = const Duration(milliseconds: 1200),
+  });
+
+  @override
+  State<UnreadBadgeBuilder> createState() => _UnreadBadgeBuilderState();
+}
+
+class _UnreadBadgeBuilderState extends State<UnreadBadgeBuilder> {
+  StreamSubscription<int>? _sub;
+  String? _badgeText;
+  Timer? _hideTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = widget.stream.listen(
+      _onCount,
+      onError: (e) {
+        setState(() => _badgeText = null);
+      },
+    );
+  }
+
+  void _onCount(int count) {
+    _hideTimer?.cancel();
+
+    if (count > 0) {
+      setState(() => _badgeText = '$count');
+    } else {
+      // debounce hiding so the badge doesn't flash away instantly
+      _hideTimer = Timer(widget.hideDelay, () {
+        if (mounted) setState(() => _badgeText = null);
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant UnreadBadgeBuilder oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.stream != widget.stream) {
+      _sub?.cancel();
+      _hideTimer?.cancel();
+      _badgeText = null;
+      _sub = widget.stream.listen(
+        _onCount,
+        onError: (e) {
+          setState(() => _badgeText = null);
+        },
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    _hideTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(context, _badgeText);
 }
