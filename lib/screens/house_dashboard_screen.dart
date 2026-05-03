@@ -10,6 +10,7 @@ import '../services/house_service.dart';
 import 'chat_screen.dart';
 import 'create_house_screen.dart';
 import 'house_detail_screen.dart';
+import 'user_profile_screen.dart';
 
 class HouseDashboardScreen extends StatefulWidget {
   const HouseDashboardScreen({super.key});
@@ -82,6 +83,20 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen> {
     final initials = parts.take(2).map((part) => part.isNotEmpty ? part[0] : '').join();
 
     return initials.toUpperCase();
+  }
+
+  double? _parseNonNegative(String rawValue) {
+    final normalized = rawValue.trim().replaceAll(',', '.');
+    if (normalized.isEmpty) {
+      return null;
+    }
+
+    final parsed = double.tryParse(normalized);
+    if (parsed == null || parsed.isNaN || parsed.isInfinite || parsed < 0) {
+      return null;
+    }
+
+    return parsed;
   }
 
   Future<void> _showInviteCodeDialog(House house) async {
@@ -162,6 +177,12 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen> {
     );
   }
 
+  Future<void> _openUserProfile(String userId) async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => UserProfileScreen(userId: userId)));
+  }
+
   Future<void> _handleJoinRequest(JoinRequest request, {required bool approve}) async {
     if (_processingRequestIds.contains(request.id)) {
       return;
@@ -209,6 +230,244 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen> {
         );
       },
     );
+  }
+
+  Future<void> _showUpdateMonthlyCostsSheet(House house) async {
+    final currentUserId = _auth.currentUser?.uid ?? '';
+    final messenger = ScaffoldMessenger.of(context);
+
+    if (house.leaderId != currentUserId) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Only the house owner can update monthly costs.')),
+      );
+      return;
+    }
+
+    final rentController = TextEditingController(text: _formatTry(house.rentTotal));
+    final electricityController = TextEditingController(text: _formatTry(house.electricityTotal));
+    final waterController = TextEditingController(text: _formatTry(house.waterTotal));
+    final internetController = TextEditingController(text: _formatTry(house.internetTotal));
+
+    bool saving = false;
+
+    double? currentRent = _parseNonNegative(rentController.text);
+    double? currentElectricity = _parseNonNegative(electricityController.text);
+    double? currentWater = _parseNonNegative(waterController.text);
+    double? currentInternet = _parseNonNegative(internetController.text);
+
+    bool allValid() {
+      return currentRent != null &&
+          currentElectricity != null &&
+          currentWater != null &&
+          currentInternet != null;
+    }
+
+    double totalMonthlyCost() {
+      if (!allValid()) {
+        return 0;
+      }
+      return currentRent! + currentElectricity! + currentWater! + currentInternet!;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final valid = allValid();
+            final total = totalMonthlyCost();
+            final maxMembers = house.maxMembers;
+            final canDivide = maxMembers > 0;
+            final perPerson = canDivide ? total / maxMembers : 0.0;
+
+            Widget buildCostField({
+              required String label,
+              required IconData icon,
+              required TextEditingController controller,
+            }) {
+              return TextField(
+                controller: controller,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
+                decoration: InputDecoration(labelText: label, prefixIcon: Icon(icon)),
+                onChanged: (_) {
+                  setSheetState(() {
+                    currentRent = _parseNonNegative(rentController.text);
+                    currentElectricity = _parseNonNegative(electricityController.text);
+                    currentWater = _parseNonNegative(waterController.text);
+                    currentInternet = _parseNonNegative(internetController.text);
+                  });
+                },
+              );
+            }
+
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 8,
+                  bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Update Monthly Costs',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          color: _darkGreen,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Edit current total house costs only.',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: _darkGreen.withValues(alpha: 0.68),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      buildCostField(
+                        label: 'Rent (total house)',
+                        icon: Icons.payments_outlined,
+                        controller: rentController,
+                      ),
+                      const SizedBox(height: 10),
+                      buildCostField(
+                        label: 'Electricity',
+                        icon: Icons.bolt_outlined,
+                        controller: electricityController,
+                      ),
+                      const SizedBox(height: 10),
+                      buildCostField(
+                        label: 'Water',
+                        icon: Icons.water_drop_outlined,
+                        controller: waterController,
+                      ),
+                      const SizedBox(height: 10),
+                      buildCostField(
+                        label: 'Internet',
+                        icon: Icons.wifi_rounded,
+                        controller: internetController,
+                      ),
+                      const SizedBox(height: 14),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: _surfaceGreen,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Total Monthly Cost: ${_formatTry(total)}',
+                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                color: _darkGreen,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              canDivide ? 'Per Person: ${_formatTry(perPerson)}' : 'Per Person: -',
+                              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                color: _darkGreen.withValues(alpha: 0.78),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            if (!canDivide)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 6),
+                                child: Text(
+                                  'Set max members above 0 to calculate per-person.',
+                                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: _darkGreen.withValues(alpha: 0.7),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      if (!valid)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Text(
+                            'Enter valid non-negative numbers for all fields.',
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: Colors.red.shade700,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: !valid || saving
+                              ? null
+                              : () async {
+                                  setSheetState(() => saving = true);
+                                  try {
+                                    await _houseService.updateHouseMonthlyCosts(
+                                      houseId: house.houseId,
+                                      rentTotal: currentRent!,
+                                      electricityTotal: currentElectricity!,
+                                      waterTotal: currentWater!,
+                                      internetTotal: currentInternet!,
+                                    );
+
+                                    if (!mounted) {
+                                      return;
+                                    }
+
+                                    Navigator.of(sheetContext).pop();
+                                    messenger.showSnackBar(
+                                      const SnackBar(content: Text('Monthly costs updated')),
+                                    );
+                                  } catch (e) {
+                                    if (!mounted) {
+                                      return;
+                                    }
+
+                                    setSheetState(() => saving = false);
+                                    final message = (e is StateError ? e.message : e).toString();
+                                    messenger.showSnackBar(SnackBar(content: Text(message)));
+                                  }
+                                },
+                          child: saving
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Text('Save Monthly Costs'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      rentController.dispose();
+      electricityController.dispose();
+      waterController.dispose();
+      internetController.dispose();
+    });
   }
 
   @override
@@ -340,9 +599,6 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen> {
                         future: _houseService.getUserNamesByIds(memberPreviewIds),
                         builder: (context, namesSnapshot) {
                           final memberNames = namesSnapshot.data ?? const <String, String>{};
-                          final previewMembers = memberPreviewIds
-                              .map((memberId) => memberNames[memberId] ?? memberId)
-                              .toList();
 
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -385,35 +641,39 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen> {
                               const SizedBox(height: 10),
                               Row(
                                 children: [
-                                  ...previewMembers.asMap().entries.map((entry) {
+                                  ...memberPreviewIds.asMap().entries.map((entry) {
                                     final index = entry.key;
-                                    final memberName = entry.value;
+                                    final memberId = entry.value;
+                                    final memberName = memberNames[memberId] ?? memberId;
 
                                     return Padding(
                                       padding: EdgeInsets.only(
-                                        right: index == previewMembers.length - 1 ? 0 : 10,
+                                        right: index == memberPreviewIds.length - 1 ? 0 : 10,
                                       ),
-                                      child: CircleAvatar(
-                                        radius: 18,
-                                        backgroundColor: index.isEven ? _darkGreen : _lightGreen,
-                                        child: Text(
-                                          _memberInitials(memberName),
-                                          style: TextStyle(
-                                            color: index.isEven ? Colors.white : _darkGreen,
-                                            fontWeight: FontWeight.w800,
-                                            fontSize: 12,
+                                      child: GestureDetector(
+                                        onTap: () => _openUserProfile(memberId),
+                                        child: CircleAvatar(
+                                          radius: 18,
+                                          backgroundColor: index.isEven ? _darkGreen : _lightGreen,
+                                          child: Text(
+                                            _memberInitials(memberName),
+                                            style: TextStyle(
+                                              color: index.isEven ? Colors.white : _darkGreen,
+                                              fontWeight: FontWeight.w800,
+                                              fontSize: 12,
+                                            ),
                                           ),
                                         ),
                                       ),
                                     );
                                   }),
-                                  if (house.members.length > previewMembers.length) ...[
+                                  if (house.members.length > memberPreviewIds.length) ...[
                                     const SizedBox(width: 10),
                                     CircleAvatar(
                                       radius: 18,
                                       backgroundColor: _surfaceGreen,
                                       child: Text(
-                                        '+${house.members.length - previewMembers.length}',
+                                        '+${house.members.length - memberPreviewIds.length}',
                                         style: const TextStyle(
                                           color: _darkGreen,
                                           fontWeight: FontWeight.w800,
@@ -432,6 +692,61 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen> {
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
+                              if (isLeader) ...[
+                                const SizedBox(height: 12),
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: _surfaceGreen,
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 36,
+                                        height: 36,
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        child: const Icon(
+                                          Icons.edit_note_rounded,
+                                          color: _darkGreen,
+                                          size: 20,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              'Monthly Costs',
+                                              style: Theme.of(context).textTheme.labelLarge
+                                                  ?.copyWith(
+                                                    color: _darkGreen,
+                                                    fontWeight: FontWeight.w800,
+                                                  ),
+                                            ),
+                                            Text(
+                                              'Owner can edit current totals',
+                                              style: Theme.of(context).textTheme.bodySmall
+                                                  ?.copyWith(
+                                                    color: _darkGreen.withValues(alpha: 0.7),
+                                                  ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      TextButton(
+                                        onPressed: () => _showUpdateMonthlyCostsSheet(house),
+                                        child: const Text('Update'),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ],
                           );
                         },

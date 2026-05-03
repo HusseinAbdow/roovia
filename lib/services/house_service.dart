@@ -521,6 +521,78 @@ class HouseService {
     }
   }
 
+  Future<void> updateHouseMonthlyCosts({
+    required String houseId,
+    required double rentTotal,
+    required double electricityTotal,
+    required double waterTotal,
+    required double internetTotal,
+  }) async {
+    final trimmedHouseId = houseId.trim();
+
+    if (trimmedHouseId.isEmpty) {
+      throw ArgumentError('House ID cannot be empty');
+    }
+    if (rentTotal.isNaN || rentTotal.isInfinite || rentTotal < 0) {
+      throw ArgumentError('Total rent must be a valid non-negative number');
+    }
+    if (electricityTotal.isNaN || electricityTotal.isInfinite || electricityTotal < 0) {
+      throw ArgumentError('Total electricity must be a valid non-negative number');
+    }
+    if (waterTotal.isNaN || waterTotal.isInfinite || waterTotal < 0) {
+      throw ArgumentError('Total water must be a valid non-negative number');
+    }
+    if (internetTotal.isNaN || internetTotal.isInfinite || internetTotal < 0) {
+      throw ArgumentError('Total internet must be a valid non-negative number');
+    }
+
+    try {
+      final currentUserId = _currentUser.uid;
+      final houseRef = _db.collection('houses').doc(trimmedHouseId);
+      final houseSnapshot = await houseRef.get().timeout(_networkTimeout);
+
+      if (!houseSnapshot.exists || houseSnapshot.data() == null) {
+        throw StateError('House not found');
+      }
+
+      final leaderId = _extractStringField(houseSnapshot.data()!, const [
+        'leaderId',
+        'ownerId',
+        'adminId',
+        'leader_id',
+      ]);
+
+      if (leaderId != currentUserId) {
+        throw StateError('Only the house owner can update monthly costs');
+      }
+
+      await houseRef
+          .update({
+            'rentTotal': rentTotal,
+            'electricityTotal': electricityTotal,
+            'waterTotal': waterTotal,
+            'internetTotal': internetTotal,
+            'updatedAt': FieldValue.serverTimestamp(),
+          })
+          .timeout(_networkTimeout);
+    } on FirebaseException catch (e, stackTrace) {
+      debugPrint('HouseService.updateHouseMonthlyCosts firebase error: ${e.code}');
+      debugPrintStack(stackTrace: stackTrace);
+      if (_isMissingDefaultDbError(e)) {
+        throw _missingFirestoreDbError();
+      }
+      rethrow;
+    } on TimeoutException catch (e, stackTrace) {
+      debugPrint('HouseService.updateHouseMonthlyCosts timeout: $e');
+      debugPrintStack(stackTrace: stackTrace);
+      throw StateError('Request timed out. Please check your network and try again.');
+    } catch (e, stackTrace) {
+      debugPrint('HouseService.updateHouseMonthlyCosts unexpected error: $e');
+      debugPrintStack(stackTrace: stackTrace);
+      rethrow;
+    }
+  }
+
   Future<String> _generateUniqueInviteCode({
     int minLength = 5,
     int maxLength = 6,

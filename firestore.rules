@@ -75,6 +75,18 @@ service cloud.firestore {
       allow read, write: if isHouseMember(houseId) || isHouseLeader(houseId);
     }
 
+    // Per-user in-app notifications collection.
+    match /user_notifications/{uid}/notifications/{nid} {
+      // Users may read their own notifications
+      allow read: if isSelf(uid);
+
+      // Allow creating notifications (so clients can write lightweight in-app notifications).
+      // This is intentionally permissive so features like bill requests can create
+      // notifications for members. Updates/deletes restricted to the notification owner.
+      allow create: if signedIn();
+      allow update, delete: if isSelf(uid);
+    }
+
     match /house_user_meta/{metaId} {
       allow read: if signedIn()
           && resource.data.userId == request.auth.uid
@@ -87,6 +99,60 @@ service cloud.firestore {
           && (isHouseMember(request.resource.data.houseId) || isHouseLeader(request.resource.data.houseId));
 
       allow delete: if signedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    function expenseExists(expenseId) {
+      return exists(/databases/$(database)/documents/house_expenses/$(expenseId));
+    }
+
+    function expenseData(expenseId) {
+      return get(/databases/$(database)/documents/house_expenses/$(expenseId)).data;
+    }
+
+    function expenseDataAfter(expenseId) {
+      return getAfter(/databases/$(database)/documents/house_expenses/$(expenseId)).data;
+    }
+
+    function expenseHouseId(expenseId) {
+      return expenseData(expenseId).houseId;
+    }
+
+    match /house_expenses/{expenseId} {
+      allow read: if signedIn() && expenseExists(expenseId) && (isHouseMember(expenseHouseId(expenseId)) || isHouseLeader(expenseHouseId(expenseId)));
+
+      allow create: if signedIn()
+          && request.resource.data.houseId is string
+          && request.resource.data.title is string
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.totalAmount is number
+          && request.resource.data.perPersonAmount is number
+          && request.resource.data.status == "open"
+          && isHouseLeader(request.resource.data.houseId);
+
+      allow update, delete: if signedIn()
+          && expenseExists(expenseId)
+          && isHouseLeader(expenseHouseId(expenseId));
+
+      match /participants/{userId} {
+        allow read: if signedIn() && expenseExists(expenseId) && (isHouseMember(expenseHouseId(expenseId)) || isHouseLeader(expenseHouseId(expenseId)));
+
+        allow create: if signedIn()
+          && expenseDataAfter(expenseId).houseId is string
+          && isHouseLeader(expenseDataAfter(expenseId).houseId)
+          && request.resource.data.userId is string
+          && request.resource.data.amountOwed is number
+          && request.resource.data.status == "pending"
+          && request.resource.data.userId == userId;
+
+        allow update: if signedIn()
+            && expenseExists(expenseId)
+            && (
+              isHouseLeader(expenseHouseId(expenseId)) ||
+              (resource.data.userId == request.auth.uid && request.resource.data.status == "paid")
+            );
+
+        allow delete: if signedIn() && expenseExists(expenseId) && isHouseLeader(expenseHouseId(expenseId));
+      }
     }
   }
 }

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../models/house_model.dart';
 import '../models/join_request_model.dart';
 import '../services/house_service.dart';
+import 'expense_screen.dart';
 
 class HouseDetailScreen extends StatefulWidget {
   final House house;
@@ -101,6 +102,7 @@ class _HouseDetailScreenState extends State<HouseDetailScreen> {
   Widget build(BuildContext context) {
     final currentUserId = _auth.currentUser?.uid;
     final isMember = widget.house.members.contains(currentUserId);
+    final isLeader = widget.house.leaderId == currentUserId;
     final memberCount = widget.house.members.length;
     final maxMembers = widget.house.maxMembers;
     final isFull = memberCount >= maxMembers;
@@ -283,6 +285,23 @@ class _HouseDetailScreenState extends State<HouseDetailScreen> {
                     ],
                   ),
                 ),
+              if (isLeader) ...[
+                const SizedBox(height: 14),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.of(
+                      context,
+                    ).push(MaterialPageRoute(builder: (_) => ExpenseScreen(house: widget.house)));
+                  },
+                  icon: const Icon(Icons.receipt_long_outlined),
+                  label: const Text('Request Bill'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _darkGreen,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 13),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
