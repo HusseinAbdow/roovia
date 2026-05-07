@@ -33,7 +33,7 @@ migrate_working_dir/
 /build/
 /coverage/
 PROJECT_CONTEXT_FOR_CHATGPT.md
-
+TECH_STACK.md
 # Symbolication related
 app.*.symbols
 

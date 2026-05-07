@@ -44,15 +44,21 @@ class ExpenseService {
     required String houseId,
     required String category,
     required String title,
+    required DateTime dueDate,
     required double totalAmount,
     required List<String> members,
+    String description = '',
+    String reference = '',
   }) async {
     final trimmedHouseId = houseId.trim();
     final trimmedCategory = category.trim().isEmpty ? 'other' : category.trim();
     final trimmedTitle = title.trim();
+    final trimmedDescription = description.trim();
+    final trimmedReference = reference.trim();
     final cleanedMembers = members
         .map((member) => member.trim())
         .where((member) => member.isNotEmpty)
+        .where((member) => member != _currentUser.uid)
         .toSet()
         .toList();
 
@@ -62,6 +68,9 @@ class ExpenseService {
     if (trimmedTitle.isEmpty) {
       throw ArgumentError('Expense title cannot be empty');
     }
+    if (dueDate.isBefore(DateTime.now().subtract(const Duration(days: 1)))) {
+      throw ArgumentError('Due date must be today or later');
+    }
     if (totalAmount.isNaN || totalAmount.isInfinite || totalAmount < 0) {
       throw ArgumentError('Total amount must be a valid non-negative number');
     }
@@ -70,7 +79,9 @@ class ExpenseService {
     }
 
     final currentUserId = _currentUser.uid;
-    final perPersonAmount = totalAmount / cleanedMembers.length;
+    // Owner is always included in the split, but never stored in the selectable member list.
+    final totalParticipants = cleanedMembers.length + 1;
+    final perPersonAmount = totalAmount / totalParticipants;
     final expenseRef = _db.collection('house_expenses').doc();
     final batch = _db.batch();
 
@@ -78,11 +89,25 @@ class ExpenseService {
       'houseId': trimmedHouseId,
       'category': trimmedCategory,
       'title': trimmedTitle,
+      'description': trimmedDescription,
+      'dueDate': Timestamp.fromDate(dueDate),
+      'reference': trimmedReference,
       'totalAmount': totalAmount,
       'perPersonAmount': perPersonAmount,
       'createdBy': currentUserId,
       'createdAt': FieldValue.serverTimestamp(),
-      'status': 'open',
+      'status': 'pending',
+      'reminderEnabled': true,
+      'reminderCount': 0,
+      'lastReminderSentAt': null,
+    });
+
+    // Add owner as a confirmed participant (already paid their share)
+    batch.set(expenseRef.collection('participants').doc(currentUserId), {
+      'userId': currentUserId,
+      'amountOwed': perPersonAmount,
+      'status': 'confirmed',
+      'confirmedAt': FieldValue.serverTimestamp(),
     });
 
     for (final memberId in cleanedMembers) {
@@ -94,31 +119,34 @@ class ExpenseService {
       });
     }
 
-    // Create lightweight in-app notification documents for each participant
-    // so members get alerted that a new bill was requested.
-    try {
-      for (final memberId in cleanedMembers) {
-        if (memberId == currentUserId) continue;
-        final notifRef = _db
+    await batch.commit().timeout(_networkTimeout);
+
+    // Create lightweight in-app notification documents for each participant.
+    // Done separately so expense creation succeeds even if notifications fail.
+    for (final memberId in cleanedMembers) {
+      if (memberId == currentUserId) continue;
+      try {
+        final dueInDays = dueDate.difference(DateTime.now()).inDays;
+        await _db
             .collection('user_notifications')
             .doc(memberId)
             .collection('notifications')
-            .doc();
-
-        batch.set(notifRef, {
-          'title': 'New bill requested',
-          'body': '"$trimmedTitle" — ${trimmedCategory}',
-          'createdAt': FieldValue.serverTimestamp(),
-          'read': false,
-          'type': 'expense_request',
-          'payload': {'expenseId': expenseRef.id, 'houseId': trimmedHouseId},
-        });
+            .add({
+              'title': 'New bill requested',
+              'body': '$trimmedTitle is due in ${dueInDays < 0 ? 0 : dueInDays} days',
+              'createdAt': FieldValue.serverTimestamp(),
+              'read': false,
+              'type': 'expense_request',
+              'houseId': trimmedHouseId,
+              'expenseId': expenseRef.id,
+              'fromUserId': currentUserId,
+            })
+            .timeout(_networkTimeout);
+      } catch (_) {
+        // Notification creation failed, but expense is already created. Continue.
       }
-    } catch (_) {
-      // If notifications cannot be prepared for batching, ignore and continue.
     }
 
-    await batch.commit().timeout(_networkTimeout);
     return expenseRef.id;
   }
 
@@ -147,8 +175,9 @@ class ExpenseService {
     }
 
     final status = participantSnapshot.data()?['status'] as String? ?? 'pending';
-    if (status == 'confirmed') {
-      return;
+    // Only allow pending -> paid transition
+    if (status != 'pending') {
+      throw StateError('Payment can only be marked from pending state');
     }
 
     await participantRef
@@ -162,19 +191,75 @@ class ExpenseService {
       final expenseData = expenseSnapshot.data() ?? <String, dynamic>{};
       final creatorId = (expenseData['createdBy'] as String?) ?? '';
       if (creatorId.isNotEmpty) {
+        // Get the user's name for better notification text
+        final userDoc = await _db.collection('users').doc(trimmedUserId).get();
+        final userName =
+            (userDoc.data()?['displayName'] as String?) ??
+            (userDoc.data()?['username'] as String?) ??
+            'A member';
+        final expenseTitle = (expenseData['title'] as String?) ?? 'a bill';
+        final amountSent = (participantSnapshot.data()?['amountOwed'] as num?)?.toDouble() ?? 0.0;
+
         await _db
             .collection('user_notifications')
             .doc(creatorId)
             .collection('notifications')
             .add({
-              'title': 'Member marked paid',
-              'body': '$trimmedUserId marked payment for ${trimmedExpenseId}',
+              'title': 'Payment sent',
+              'body': '$userName sent ₺${amountSent.toStringAsFixed(2)} for $expenseTitle',
               'createdAt': FieldValue.serverTimestamp(),
               'read': false,
               'type': 'payment_marked',
-              'payload': {'expenseId': trimmedExpenseId, 'userId': trimmedUserId},
+              'houseId': expenseSnapshot.data()?['houseId'] ?? '',
+              'expenseId': trimmedExpenseId,
+              'fromUserId': trimmedUserId,
+              'userName': userName,
             })
             .timeout(_networkTimeout);
+      }
+    } catch (_) {}
+
+    // After marking as paid, check if all non-owner participants have marked as 'paid'.
+    try {
+      final expenseRef = _db.collection('house_expenses').doc(trimmedExpenseId);
+      final expenseSnapshot = await expenseRef.get().timeout(_networkTimeout);
+      final expenseData = expenseSnapshot.data() ?? <String, dynamic>{};
+      final creatorId = (expenseData['createdBy'] as String?) ?? '';
+      if (creatorId.isNotEmpty) {
+        final participantsSnapshot = await expenseRef
+            .collection('participants')
+            .get()
+            .timeout(_networkTimeout);
+
+        final nonOwnerParticipants = participantsSnapshot.docs
+            .where((doc) => doc.id != creatorId)
+            .toList();
+        final allNonOwnersPaid =
+            nonOwnerParticipants.isNotEmpty &&
+            nonOwnerParticipants.every(
+              (doc) => (doc.data()['status'] as String? ?? 'pending') == 'paid',
+            );
+
+        if (allNonOwnersPaid) {
+          // Notify the creator that all members marked as paid and the bill is ready for owner confirmation.
+          final expenseTitle = (expenseData['title'] as String?) ?? 'a bill';
+          await _db
+              .collection('user_notifications')
+              .doc(creatorId)
+              .collection('notifications')
+              .add({
+                'title': 'Bill ready for confirmation',
+                'body':
+                    'All members have marked payment for "$expenseTitle". Please confirm settlement.',
+                'createdAt': FieldValue.serverTimestamp(),
+                'read': false,
+                'type': 'bill_ready_for_owner_confirmation',
+                'houseId': expenseSnapshot.data()?['houseId'] ?? '',
+                'expenseId': trimmedExpenseId,
+                'fromUserId': trimmedUserId,
+              })
+              .timeout(_networkTimeout);
+        }
       }
     } catch (_) {}
   }
@@ -211,21 +296,34 @@ class ExpenseService {
       throw StateError('Payment must be marked as paid first');
     }
 
-    await participantRef.update({'status': 'confirmed'}).timeout(_networkTimeout);
+    await participantRef
+        .update({'status': 'confirmed', 'confirmedAt': FieldValue.serverTimestamp()})
+        .timeout(_networkTimeout);
 
     // Notify the participant that the owner confirmed their payment.
     try {
+      // Get the user's name for better notification text
+      final userDoc = await _db.collection('users').doc(trimmedUserId).get();
+      final userName =
+          (userDoc.data()?['displayName'] as String?) ??
+          (userDoc.data()?['username'] as String?) ??
+          'Your';
+      final expenseTitle = (expenseData['title'] as String?) ?? 'a bill';
+
       await _db
           .collection('user_notifications')
           .doc(trimmedUserId)
           .collection('notifications')
           .add({
             'title': 'Payment confirmed',
-            'body': 'Your payment for ${trimmedExpenseId} was confirmed',
+            'body': 'Your payment for "$expenseTitle" was confirmed',
             'createdAt': FieldValue.serverTimestamp(),
             'read': false,
             'type': 'payment_confirmed',
-            'payload': {'expenseId': trimmedExpenseId},
+            'houseId': expenseData['houseId'] ?? '',
+            'expenseId': trimmedExpenseId,
+            'fromUserId': _currentUser.uid,
+            'userName': userName,
           })
           .timeout(_networkTimeout);
     } catch (_) {}
@@ -240,8 +338,134 @@ class ExpenseService {
           (doc) => (doc.data()['status'] as String? ?? 'pending') == 'confirmed',
         );
 
-    await expenseRef
-        .update({'status': allConfirmed ? 'confirmed' : 'open'})
-        .timeout(_networkTimeout);
+    if (allConfirmed) {
+      await expenseRef.update({'status': 'confirmed'}).timeout(_networkTimeout);
+
+      // Notify all participants that the bill is now fully paid/settled by the owner.
+      try {
+        final expenseTitle = (expenseData['title'] as String?) ?? 'a bill';
+        for (final doc in participantsSnapshot.docs) {
+          final participantId = doc.id;
+          if (participantId == _currentUser.uid) continue; // skip creator/owner
+          await _db
+              .collection('user_notifications')
+              .doc(participantId)
+              .collection('notifications')
+              .add({
+                'title': 'Bill settled',
+                'body': 'The bill "$expenseTitle" was confirmed as paid by the owner.',
+                'createdAt': FieldValue.serverTimestamp(),
+                'read': false,
+                'type': 'bill_paid',
+                'houseId': expenseData['houseId'] ?? '',
+                'expenseId': trimmedExpenseId,
+                'fromUserId': _currentUser.uid,
+              })
+              .timeout(_networkTimeout);
+        }
+      } catch (_) {}
+    } else {
+      await expenseRef.update({'status': 'pending'}).timeout(_networkTimeout);
+    }
+  }
+
+  /// Confirms all participants who have status == 'paid' for the given expense.
+  /// This is intended to be called by the expense creator as a final settlement action.
+  Future<void> confirmAllPaidParticipants(String expenseId) async {
+    final trimmedExpenseId = expenseId.trim();
+    if (trimmedExpenseId.isEmpty) {
+      throw ArgumentError('Expense ID cannot be empty');
+    }
+
+    final expenseRef = _db.collection('house_expenses').doc(trimmedExpenseId);
+    final expenseSnapshot = await expenseRef.get().timeout(_networkTimeout);
+    final expenseData = expenseSnapshot.data();
+
+    if (!expenseSnapshot.exists || expenseData == null) {
+      throw StateError('Expense not found');
+    }
+
+    if ((expenseData['createdBy'] as String? ?? '') != _currentUser.uid) {
+      throw StateError('Only the expense creator can confirm payments');
+    }
+
+    final participantsRef = expenseRef.collection('participants');
+    final participantsSnapshot = await participantsRef.get().timeout(_networkTimeout);
+
+    final batch = _db.batch();
+    final List<String> toNotify = [];
+
+    for (final doc in participantsSnapshot.docs) {
+      final pid = doc.id;
+      final pdata = doc.data();
+      final status = (pdata['status'] as String?) ?? 'pending';
+      if (status == 'paid') {
+        final pRef = participantsRef.doc(pid);
+        batch.update(pRef, {'status': 'confirmed', 'confirmedAt': FieldValue.serverTimestamp()});
+        toNotify.add(pid);
+      }
+    }
+
+    if (toNotify.isNotEmpty) {
+      await batch.commit().timeout(_networkTimeout);
+
+      // Send notifications to each participant that their payment was confirmed.
+      try {
+        final expenseTitle = (expenseData['title'] as String?) ?? 'a bill';
+        for (final pid in toNotify) {
+          await _db
+              .collection('user_notifications')
+              .doc(pid)
+              .collection('notifications')
+              .add({
+                'title': 'Payment confirmed',
+                'body': 'Your payment for "$expenseTitle" was confirmed',
+                'createdAt': FieldValue.serverTimestamp(),
+                'read': false,
+                'type': 'payment_confirmed',
+                'houseId': expenseData['houseId'] ?? '',
+                'expenseId': trimmedExpenseId,
+                'fromUserId': _currentUser.uid,
+              })
+              .timeout(_networkTimeout);
+        }
+      } catch (_) {}
+    }
+
+    // Re-load participants to determine final status
+    final refreshed = await participantsRef.get().timeout(_networkTimeout);
+    final allConfirmed =
+        refreshed.docs.isNotEmpty &&
+        refreshed.docs.every(
+          (doc) => (doc.data()['status'] as String? ?? 'pending') == 'confirmed',
+        );
+
+    if (allConfirmed) {
+      await expenseRef.update({'status': 'confirmed'}).timeout(_networkTimeout);
+
+      // Notify all non-owner participants that the bill was settled by owner
+      try {
+        final expenseTitle = (expenseData['title'] as String?) ?? 'a bill';
+        for (final doc in refreshed.docs) {
+          final participantId = doc.id;
+          if (participantId == _currentUser.uid) continue;
+          await _db
+              .collection('user_notifications')
+              .doc(participantId)
+              .collection('notifications')
+              .add({
+                'title': 'Bill settled',
+                'body': 'The bill "$expenseTitle" was confirmed as paid by the owner.',
+                'createdAt': FieldValue.serverTimestamp(),
+                'read': false,
+                'type': 'bill_paid',
+                'houseId': expenseData['houseId'] ?? '',
+                'expenseId': trimmedExpenseId,
+                'fromUserId': _currentUser.uid,
+              })
+              .timeout(_networkTimeout);
+        }
+      } catch (_) {}
+    }
   }
 }

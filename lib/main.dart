@@ -22,7 +22,7 @@ class MyApp extends StatelessWidget {
       title: 'Roovia',
       theme: ThemeData(
         useMaterial3: true,
-        scaffoldBackgroundColor: Colors.white,
+        scaffoldBackgroundColor: const Color(0xFFF7FAF8),
         colorScheme: ColorScheme.fromSeed(
           seedColor: darkGreen,
           primary: darkGreen,
@@ -30,6 +30,28 @@ class MyApp extends StatelessWidget {
           brightness: Brightness.light,
         ),
         textTheme: Theme.of(context).textTheme.apply(bodyColor: darkGreen, displayColor: darkGreen),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFFF7FAF8),
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          centerTitle: false,
+          titleTextStyle: TextStyle(color: darkGreen, fontSize: 22, fontWeight: FontWeight.w800),
+          iconTheme: IconThemeData(color: darkGreen),
+        ),
+        cardTheme: CardThemeData(
+          color: Colors.white,
+          elevation: 0,
+          margin: EdgeInsets.zero,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        ),
+        chipTheme: ChipThemeData(
+          backgroundColor: const Color(0xFFF0F4F2),
+          selectedColor: const Color(0xFFD5ECD9),
+          disabledColor: const Color(0xFFE8ECEA),
+          labelStyle: const TextStyle(color: darkGreen, fontWeight: FontWeight.w600),
+          side: BorderSide.none,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        ),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
           fillColor: Colors.white,

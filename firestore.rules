@@ -126,7 +126,7 @@ service cloud.firestore {
           && request.resource.data.createdBy == request.auth.uid
           && request.resource.data.totalAmount is number
           && request.resource.data.perPersonAmount is number
-          && request.resource.data.status == "open"
+          && request.resource.data.status == "pending"
           && isHouseLeader(request.resource.data.houseId);
 
       allow update, delete: if signedIn()
@@ -141,7 +141,7 @@ service cloud.firestore {
           && isHouseLeader(expenseDataAfter(expenseId).houseId)
           && request.resource.data.userId is string
           && request.resource.data.amountOwed is number
-          && request.resource.data.status == "pending"
+          && (request.resource.data.status == "pending" || request.resource.data.status == "confirmed")
           && request.resource.data.userId == userId;
 
         allow update: if signedIn()
