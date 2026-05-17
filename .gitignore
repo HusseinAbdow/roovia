@@ -45,6 +45,11 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
+# Android build outputs
+/android/build/
+**/build/
+**/reports/
+
 # Local developer files and sensitive configs
 /android/local.properties
 /android/key.properties
