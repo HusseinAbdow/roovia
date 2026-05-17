@@ -1,16 +1,62 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:roovia/screens/login_screen.dart';
+import 'package:roovia/services/fcm_service.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'screens/expense_detail_screen.dart';
 import 'firebase_options.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  runApp(const MyApp());
+
+  final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+  final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
+  final String? initialExpenseId = initialMessage?.data['expenseId'] as String?;
+
+  // Initialize FCM and wire up navigation for notification taps
+  await FcmService.instance.init(
+    onNotificationTap: (expenseId) async {
+      if (expenseId.isNotEmpty) {
+        navigatorKey.currentState?.push(
+          MaterialPageRoute(builder: (_) => ExpenseDetailScreen(expenseId: expenseId)),
+        );
+      }
+    },
+  );
+
+  runApp(MyApp(navigatorKey: navigatorKey, initialExpenseId: initialExpenseId));
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class MyApp extends StatefulWidget {
+  final GlobalKey<NavigatorState>? navigatorKey;
+  final String? initialExpenseId;
+
+  const MyApp({super.key, this.navigatorKey, this.initialExpenseId});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  bool _initialRouteHandled = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_initialRouteHandled) return;
+    final expenseId = widget.initialExpenseId?.trim() ?? '';
+    if (expenseId.isEmpty) return;
+
+    _initialRouteHandled = true;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      widget.navigatorKey?.currentState?.push(
+        MaterialPageRoute(builder: (_) => ExpenseDetailScreen(expenseId: expenseId)),
+      );
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -80,6 +126,7 @@ class MyApp extends StatelessWidget {
           ),
         ),
       ),
+      navigatorKey: widget.navigatorKey,
       home: const LoginScreen(),
     );
   }

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:intl/intl.dart';
 
 import '../models/expense_model.dart';
 
@@ -99,6 +100,8 @@ class ExpenseService {
       'status': 'pending',
       'reminderEnabled': true,
       'reminderCount': 0,
+      'overdueReminderCount': 0,
+      'lastReminderAt': null,
       'lastReminderSentAt': null,
     });
 
@@ -126,14 +129,14 @@ class ExpenseService {
     for (final memberId in cleanedMembers) {
       if (memberId == currentUserId) continue;
       try {
-        final dueInDays = dueDate.difference(DateTime.now()).inDays;
+        final dueLabel = DateFormat('MMMM d').format(dueDate);
         await _db
             .collection('user_notifications')
             .doc(memberId)
             .collection('notifications')
             .add({
-              'title': 'New bill requested',
-              'body': '$trimmedTitle is due in ${dueInDays < 0 ? 0 : dueInDays} days',
+              'title': 'New House Bill',
+              'body': '$trimmedTitle bill is due $dueLabel',
               'createdAt': FieldValue.serverTimestamp(),
               'read': false,
               'type': 'expense_request',
@@ -198,15 +201,13 @@ class ExpenseService {
             (userDoc.data()?['username'] as String?) ??
             'A member';
         final expenseTitle = (expenseData['title'] as String?) ?? 'a bill';
-        final amountSent = (participantSnapshot.data()?['amountOwed'] as num?)?.toDouble() ?? 0.0;
-
         await _db
             .collection('user_notifications')
             .doc(creatorId)
             .collection('notifications')
             .add({
-              'title': 'Payment sent',
-              'body': '$userName sent ₺${amountSent.toStringAsFixed(2)} for $expenseTitle',
+              'title': 'Payment Submitted',
+              'body': '$userName marked $expenseTitle as paid',
               'createdAt': FieldValue.serverTimestamp(),
               'read': false,
               'type': 'payment_marked',
@@ -315,8 +316,8 @@ class ExpenseService {
           .doc(trimmedUserId)
           .collection('notifications')
           .add({
-            'title': 'Payment confirmed',
-            'body': 'Your payment for "$expenseTitle" was confirmed',
+            'title': 'Payment Confirmed',
+            'body': 'Your $expenseTitle payment was confirmed',
             'createdAt': FieldValue.serverTimestamp(),
             'read': false,
             'type': 'payment_confirmed',
