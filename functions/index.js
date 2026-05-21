@@ -9,6 +9,10 @@ const UPCOMING_GAP_MS = 20 * 60 * 60 * 1000;
 const OVERDUE_GAP_MS = 24 * 60 * 60 * 1000;
 const MAX_OVERDUE_REMINDERS = 6;
 
+function logNotification(message, details = {}) {
+  console.log(`[notifications] ${message}`, details);
+}
+
 function toDate(value) {
   if (!value) return null;
   if (typeof value.toDate === 'function') return value.toDate();
@@ -28,9 +32,9 @@ function reminderBody(kind, expenseTitle, amountOwed) {
   const amountText = amountOwed > 0 ? ` You still owe ₺${amountOwed.toFixed(2)}.` : '';
   switch (kind) {
     case 'bill_due_soon':
-      return `${expenseTitle} bill is due in 3 days.`;
+      return `${expenseTitle} bill is due in 3 days.${amountText}`.trim();
     case 'bill_due_tomorrow':
-      return `${expenseTitle} bill is due tomorrow.`;
+      return `${expenseTitle} bill is due tomorrow.${amountText}`.trim();
     case 'bill_overdue_reminder':
       return `${expenseTitle} bill is now overdue.${amountText}`.trim();
     default:
@@ -65,6 +69,10 @@ async function sendNotificationBatch({
   type,
   targets,
   reminderPatch,
+  notificationIdSuffix,
+  billTitle,
+  billAmount,
+  dueDate,
 }) {
   if (!targets.length) return false;
 
@@ -76,7 +84,7 @@ async function sendNotificationBatch({
       .collection('user_notifications')
       .doc(target.userId)
       .collection('notifications')
-      .doc();
+      .doc(`${expenseId}_${target.userId}_${notificationIdSuffix || type}`);
 
     batch.set(notificationRef, {
       title,
@@ -89,11 +97,21 @@ async function sendNotificationBatch({
       fromUserId: createdBy,
       userName: target.userName || 'Member',
       amountOwed: target.amountOwed,
+      billTitle: billTitle || '',
+      billAmount: billAmount || 0,
+      dueDate: dueDate || null,
     });
   }
 
   batch.update(db.collection('house_expenses').doc(expenseId), reminderPatch);
   await batch.commit();
+  logNotification('reminder sent', {
+    expenseId,
+    houseId,
+    createdBy,
+    type,
+    targetCount: targets.length,
+  });
   return true;
 }
 
@@ -112,7 +130,11 @@ async function getPendingTargets(expenseRef, creatorId) {
   const pending = participantsSnapshot.docs.filter((doc) => {
     const data = doc.data() || {};
     const status = (data.status || 'pending').toString();
-    return doc.id !== creatorId && status === 'pending';
+    const shouldInclude = doc.id !== creatorId && status === 'pending';
+    if (shouldInclude) {
+      logNotification('participant filtered', { expenseId: expenseRef.id, userId: doc.id, status });
+    }
+    return shouldInclude;
   });
 
   const targets = [];
@@ -144,17 +166,32 @@ async function processExpenseReminder(expenseDoc) {
   const overdueReminderCount = Number(data.overdueReminderCount || 0);
 
   if (!reminderEnabled || status === 'confirmed' || !dueDate) {
+    logNotification('reminder skipped', {
+      expenseId,
+      reason: !reminderEnabled ? 'disabled' : status === 'confirmed' ? 'confirmed' : 'missing_due_date',
+    });
     return false;
   }
 
   const targets = await getPendingTargets(expenseRef, createdBy);
   if (!targets.length) {
+    logNotification('reminder skipped', { expenseId, reason: 'no_pending_targets' });
     return false;
   }
 
   const gapOkForUpcoming = reminderWindowOpen(lastReminderAt, UPCOMING_GAP_MS);
   const gapOkForOverdue = reminderWindowOpen(lastReminderAt, OVERDUE_GAP_MS);
   const daysLeft = daysUntilDue(dueDate);
+
+  if (daysLeft < 0) {
+    logNotification('overdue detection', {
+      expenseId,
+      houseId,
+      title,
+      daysLeft,
+      overdueReminderCount,
+    });
+  }
 
   if (daysLeft === 3 && reminderCount < 1 && gapOkForUpcoming) {
     return sendNotificationBatch({
@@ -165,10 +202,14 @@ async function processExpenseReminder(expenseDoc) {
       body: reminderBody('bill_due_soon', title, 0),
       type: 'bill_due_soon',
       targets,
+      notificationIdSuffix: 'bill_due_soon',
       reminderPatch: {
         reminderCount: admin.firestore.FieldValue.increment(1),
         lastReminderAt: admin.firestore.FieldValue.serverTimestamp(),
       },
+      billTitle: title,
+      billAmount: 0,
+      dueDate: admin.firestore.Timestamp.fromDate(dueDate),
     });
   }
 
@@ -181,14 +222,19 @@ async function processExpenseReminder(expenseDoc) {
       body: reminderBody('bill_due_tomorrow', title, 0),
       type: 'bill_due_tomorrow',
       targets,
+      notificationIdSuffix: 'bill_due_tomorrow',
       reminderPatch: {
         reminderCount: admin.firestore.FieldValue.increment(1),
         lastReminderAt: admin.firestore.FieldValue.serverTimestamp(),
       },
+      billTitle: title,
+      billAmount: 0,
+      dueDate: admin.firestore.Timestamp.fromDate(dueDate),
     });
   }
 
   if (daysLeft < 0 && overdueReminderCount < MAX_OVERDUE_REMINDERS && gapOkForOverdue) {
+    const nextOverdueCount = overdueReminderCount + 1;
     return sendNotificationBatch({
       expenseId,
       houseId,
@@ -197,12 +243,24 @@ async function processExpenseReminder(expenseDoc) {
       body: reminderBody('bill_overdue_reminder', title, Number(data.perPersonAmount || 0)),
       type: 'bill_overdue_reminder',
       targets,
+      notificationIdSuffix: `bill_overdue_reminder_${nextOverdueCount}`,
       reminderPatch: {
         overdueReminderCount: admin.firestore.FieldValue.increment(1),
         lastReminderAt: admin.firestore.FieldValue.serverTimestamp(),
       },
+      billTitle: title,
+      billAmount: Number(data.perPersonAmount || 0),
+      dueDate: admin.firestore.Timestamp.fromDate(dueDate),
     });
   }
+
+  logNotification('reminder skipped', {
+    expenseId,
+    reason: 'window_not_open_or_not_due',
+    daysLeft,
+    reminderCount,
+    overdueReminderCount,
+  });
 
   return false;
 }
@@ -216,6 +274,12 @@ exports.sendPushOnUserNotification = functions.firestore
   .onCreate(async (snap, context) => {
     const { userId } = context.params;
     const notif = snap.data() || {};
+    const notificationId = context.params.notifId;
+
+    if (notif.pushSentAt) {
+      logNotification('push skipped', { userId, notificationId, reason: 'already_sent' });
+      return null;
+    }
 
     const title = notif.title || 'Roovia';
     const body = notif.body || '';
@@ -223,14 +287,20 @@ exports.sendPushOnUserNotification = functions.firestore
       type: notif.type || '',
       expenseId: notif.expenseId || '',
       houseId: notif.houseId || '',
+      notificationId,
     };
 
     try {
       const userDoc = await db.collection('users').doc(userId).get();
+      if (!userDoc.exists) {
+        logNotification('push skipped', { userId, notificationId, reason: 'missing_user_doc' });
+        return null;
+      }
+
       const userData = userDoc.data() || {};
-      const token = userData.fcmToken || null;
+      const token = typeof userData.fcmToken === 'string' ? userData.fcmToken.trim() : '';
       if (!token) {
-        console.log('No token for user', userId);
+        logNotification('push skipped', { userId, notificationId, reason: 'missing_token' });
         return null;
       }
 
@@ -243,18 +313,35 @@ exports.sendPushOnUserNotification = functions.firestore
         data,
       });
 
-      console.log('Sent FCM message:', response);
+      await snap.ref.set(
+        {
+          pushSentAt: admin.firestore.FieldValue.serverTimestamp(),
+          pushMessageId: response,
+        },
+        { merge: true },
+      );
+
+      logNotification('push sent', { userId, notificationId, response });
       return response;
     } catch (error) {
       const code = error && error.code;
       if (code === 'messaging/registration-token-not-registered' || code === 'messaging/invalid-registration-token') {
+        logNotification('token invalid', { userId, notificationId, code });
         await db.collection('users').doc(userId).set(
           { fcmToken: admin.firestore.FieldValue.delete() },
           { merge: true },
         );
+      } else {
+        console.error('Error sending FCM', error);
       }
 
-      console.error('Error sending FCM', error);
+      await snap.ref.set(
+        {
+          pushFailedAt: admin.firestore.FieldValue.serverTimestamp(),
+          pushErrorCode: code || 'unknown',
+        },
+        { merge: true },
+      );
       return null;
     }
   });

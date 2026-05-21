@@ -426,7 +426,7 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen> {
                                       return;
                                     }
 
-                                    Navigator.of(sheetContext).pop();
+                                    Navigator.of(context).pop();
                                     messenger.showSnackBar(
                                       const SnackBar(content: Text('Monthly costs updated')),
                                     );

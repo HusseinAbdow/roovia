@@ -20,6 +20,24 @@ class ExpenseService {
     return user;
   }
 
+  String _displayNameFor(User user) {
+    final displayName = user.displayName?.trim() ?? '';
+    if (displayName.isNotEmpty) {
+      return displayName;
+    }
+
+    final email = user.email ?? '';
+    if (email.contains('@')) {
+      return email.split('@').first;
+    }
+
+    return 'A member';
+  }
+
+  String _notificationDocId(String expenseId, String userId, String kind) {
+    return '${expenseId.trim()}_${userId.trim()}_$kind';
+  }
+
   Stream<List<ExpenseModel>> streamExpenses(String houseId) {
     final trimmedHouseId = houseId.trim();
     if (trimmedHouseId.isEmpty) {
@@ -79,7 +97,9 @@ class ExpenseService {
       throw ArgumentError('At least 1 member is required');
     }
 
-    final currentUserId = _currentUser.uid;
+    final currentUser = _currentUser;
+    final currentUserId = currentUser.uid;
+    final currentUserName = _displayNameFor(currentUser);
     // Owner is always included in the split, but never stored in the selectable member list.
     final totalParticipants = cleanedMembers.length + 1;
     final perPersonAmount = totalAmount / totalParticipants;
@@ -134,15 +154,20 @@ class ExpenseService {
             .collection('user_notifications')
             .doc(memberId)
             .collection('notifications')
-            .add({
+            .doc(_notificationDocId(expenseRef.id, memberId, 'bill_created'))
+            .set({
               'title': 'New House Bill',
-              'body': '$trimmedTitle bill is due $dueLabel',
+              'body':
+                  '$currentUserName created $trimmedTitle • ₺${totalAmount.toStringAsFixed(2)} due $dueLabel',
               'createdAt': FieldValue.serverTimestamp(),
               'read': false,
               'type': 'expense_request',
               'houseId': trimmedHouseId,
               'expenseId': expenseRef.id,
               'fromUserId': currentUserId,
+              'billTitle': trimmedTitle,
+              'billAmount': totalAmount,
+              'dueDate': Timestamp.fromDate(dueDate),
             })
             .timeout(_networkTimeout);
       } catch (_) {
@@ -196,18 +221,22 @@ class ExpenseService {
       if (creatorId.isNotEmpty) {
         // Get the user's name for better notification text
         final userDoc = await _db.collection('users').doc(trimmedUserId).get();
-        final userName =
-            (userDoc.data()?['displayName'] as String?) ??
-            (userDoc.data()?['username'] as String?) ??
-            'A member';
+        final userData = userDoc.data() ?? const <String, dynamic>{};
+        final userName = (userData['name'] as String?)?.trim().isNotEmpty == true
+            ? (userData['name'] as String).trim()
+            : (userData['username'] as String?)?.trim().isNotEmpty == true
+            ? (userData['username'] as String).trim()
+            : 'A member';
         final expenseTitle = (expenseData['title'] as String?) ?? 'a bill';
+        final amountOwed = (participantSnapshot.data()?['amountOwed'] as num?)?.toDouble() ?? 0.0;
         await _db
             .collection('user_notifications')
             .doc(creatorId)
             .collection('notifications')
-            .add({
+            .doc(_notificationDocId(trimmedExpenseId, trimmedUserId, 'payment_submitted'))
+            .set({
               'title': 'Payment Submitted',
-              'body': '$userName marked $expenseTitle as paid',
+              'body': '$userName paid ₺${amountOwed.toStringAsFixed(2)} for $expenseTitle',
               'createdAt': FieldValue.serverTimestamp(),
               'read': false,
               'type': 'payment_marked',
@@ -215,6 +244,8 @@ class ExpenseService {
               'expenseId': trimmedExpenseId,
               'fromUserId': trimmedUserId,
               'userName': userName,
+              'billTitle': expenseTitle,
+              'billAmount': amountOwed,
             })
             .timeout(_networkTimeout);
       }
@@ -248,16 +279,17 @@ class ExpenseService {
               .collection('user_notifications')
               .doc(creatorId)
               .collection('notifications')
-              .add({
+              .doc(_notificationDocId(trimmedExpenseId, creatorId, 'owner_confirmation_ready'))
+              .set({
                 'title': 'Bill ready for confirmation',
-                'body':
-                    'All members have marked payment for "$expenseTitle". Please confirm settlement.',
+                'body': 'All members have paid for $expenseTitle. Please confirm settlement.',
                 'createdAt': FieldValue.serverTimestamp(),
                 'read': false,
                 'type': 'bill_ready_for_owner_confirmation',
                 'houseId': expenseSnapshot.data()?['houseId'] ?? '',
                 'expenseId': trimmedExpenseId,
                 'fromUserId': trimmedUserId,
+                'billTitle': expenseTitle,
               })
               .timeout(_networkTimeout);
         }
@@ -305,19 +337,24 @@ class ExpenseService {
     try {
       // Get the user's name for better notification text
       final userDoc = await _db.collection('users').doc(trimmedUserId).get();
-      final userName =
-          (userDoc.data()?['displayName'] as String?) ??
-          (userDoc.data()?['username'] as String?) ??
-          'Your';
+      final userData = userDoc.data() ?? const <String, dynamic>{};
+      final userName = (userData['name'] as String?)?.trim().isNotEmpty == true
+          ? (userData['name'] as String).trim()
+          : (userData['username'] as String?)?.trim().isNotEmpty == true
+          ? (userData['username'] as String).trim()
+          : 'Your';
       final expenseTitle = (expenseData['title'] as String?) ?? 'a bill';
+      final amountOwed = (participantSnapshot.data()?['amountOwed'] as num?)?.toDouble() ?? 0.0;
 
       await _db
           .collection('user_notifications')
           .doc(trimmedUserId)
           .collection('notifications')
-          .add({
+          .doc(_notificationDocId(trimmedExpenseId, trimmedUserId, 'payment_confirmed'))
+          .set({
             'title': 'Payment Confirmed',
-            'body': 'Your $expenseTitle payment was confirmed',
+            'body':
+                'Your ₺${amountOwed.toStringAsFixed(2)} payment for $expenseTitle was confirmed',
             'createdAt': FieldValue.serverTimestamp(),
             'read': false,
             'type': 'payment_confirmed',
@@ -325,6 +362,8 @@ class ExpenseService {
             'expenseId': trimmedExpenseId,
             'fromUserId': _currentUser.uid,
             'userName': userName,
+            'billTitle': expenseTitle,
+            'billAmount': amountOwed,
           })
           .timeout(_networkTimeout);
     } catch (_) {}
@@ -345,6 +384,7 @@ class ExpenseService {
       // Notify all participants that the bill is now fully paid/settled by the owner.
       try {
         final expenseTitle = (expenseData['title'] as String?) ?? 'a bill';
+        final billAmount = (expenseData['totalAmount'] as num?)?.toDouble() ?? 0.0;
         for (final doc in participantsSnapshot.docs) {
           final participantId = doc.id;
           if (participantId == _currentUser.uid) continue; // skip creator/owner
@@ -352,15 +392,18 @@ class ExpenseService {
               .collection('user_notifications')
               .doc(participantId)
               .collection('notifications')
-              .add({
+              .doc(_notificationDocId(trimmedExpenseId, participantId, 'bill_settled'))
+              .set({
                 'title': 'Bill settled',
-                'body': 'The bill "$expenseTitle" was confirmed as paid by the owner.',
+                'body': '$expenseTitle is settled • ₺${billAmount.toStringAsFixed(2)} total',
                 'createdAt': FieldValue.serverTimestamp(),
                 'read': false,
                 'type': 'bill_paid',
                 'houseId': expenseData['houseId'] ?? '',
                 'expenseId': trimmedExpenseId,
                 'fromUserId': _currentUser.uid,
+                'billTitle': expenseTitle,
+                'billAmount': billAmount,
               })
               .timeout(_networkTimeout);
         }
@@ -414,19 +457,26 @@ class ExpenseService {
       try {
         final expenseTitle = (expenseData['title'] as String?) ?? 'a bill';
         for (final pid in toNotify) {
+          final participantDoc = participantsSnapshot.docs.firstWhere((doc) => doc.id == pid);
+          final participantAmount =
+              (participantDoc.data()['amountOwed'] as num?)?.toDouble() ?? 0.0;
           await _db
               .collection('user_notifications')
               .doc(pid)
               .collection('notifications')
-              .add({
+              .doc(_notificationDocId(trimmedExpenseId, pid, 'payment_confirmed_batch'))
+              .set({
                 'title': 'Payment confirmed',
-                'body': 'Your payment for "$expenseTitle" was confirmed',
+                'body':
+                    'Your ₺${participantAmount.toStringAsFixed(2)} payment for $expenseTitle was confirmed',
                 'createdAt': FieldValue.serverTimestamp(),
                 'read': false,
                 'type': 'payment_confirmed',
                 'houseId': expenseData['houseId'] ?? '',
                 'expenseId': trimmedExpenseId,
                 'fromUserId': _currentUser.uid,
+                'billTitle': expenseTitle,
+                'billAmount': participantAmount,
               })
               .timeout(_networkTimeout);
         }
@@ -447,6 +497,7 @@ class ExpenseService {
       // Notify all non-owner participants that the bill was settled by owner
       try {
         final expenseTitle = (expenseData['title'] as String?) ?? 'a bill';
+        final billAmount = (expenseData['totalAmount'] as num?)?.toDouble() ?? 0.0;
         for (final doc in refreshed.docs) {
           final participantId = doc.id;
           if (participantId == _currentUser.uid) continue;
@@ -454,15 +505,18 @@ class ExpenseService {
               .collection('user_notifications')
               .doc(participantId)
               .collection('notifications')
-              .add({
+              .doc(_notificationDocId(trimmedExpenseId, participantId, 'bill_settled_batch'))
+              .set({
                 'title': 'Bill settled',
-                'body': 'The bill "$expenseTitle" was confirmed as paid by the owner.',
+                'body': '$expenseTitle is settled • ₺${billAmount.toStringAsFixed(2)} total',
                 'createdAt': FieldValue.serverTimestamp(),
                 'read': false,
                 'type': 'bill_paid',
                 'houseId': expenseData['houseId'] ?? '',
                 'expenseId': trimmedExpenseId,
                 'fromUserId': _currentUser.uid,
+                'billTitle': expenseTitle,
+                'billAmount': billAmount,
               })
               .timeout(_networkTimeout);
         }

@@ -741,7 +741,7 @@ class HouseService {
     bool metaDocMissing = false;
     Timestamp? latestLastSeenAt;
 
-    int _countOtherUserMessages(Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+    int countOtherUserMessages(Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
       return docs.where((doc) {
         final data = doc.data();
         final senderId = (data['senderId'] as String?)?.trim();
@@ -762,7 +762,7 @@ class HouseService {
       // If the meta document does not exist at all, or we don't have a stable timestamp, count all messages as unread.
       if (metaDocMissing || latestLastSeenAt == null) {
         messageSubscription = messagesRef.orderBy('createdAt').snapshots().listen((snapshot) {
-          final unreadCount = _countOtherUserMessages(
+          final unreadCount = countOtherUserMessages(
             snapshot.docs.where((doc) => doc.data()['createdAt'] is Timestamp),
           );
 
@@ -781,7 +781,7 @@ class HouseService {
           .orderBy('createdAt');
 
       messageSubscription = query.snapshots().listen((snapshot) {
-        final unreadCount = _countOtherUserMessages(
+        final unreadCount = countOtherUserMessages(
           snapshot.docs.where((doc) => doc.data()['createdAt'] is Timestamp),
         );
 

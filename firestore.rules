@@ -118,7 +118,9 @@ service cloud.firestore {
     }
 
     match /house_expenses/{expenseId} {
-      allow read: if signedIn() && expenseExists(expenseId) && (isHouseMember(expenseHouseId(expenseId)) || isHouseLeader(expenseHouseId(expenseId)));
+      allow read: if signedIn()
+          && resource.data.houseId is string
+          && (isHouseMember(resource.data.houseId) || isHouseLeader(resource.data.houseId));
 
       allow create: if signedIn()
           && request.resource.data.houseId is string
