@@ -115,6 +115,53 @@ async function sendNotificationBatch({
   return true;
 }
 
+async function sendHouseMessageNotificationBatch({
+  houseId,
+  messageId,
+  senderId,
+  senderName,
+  text,
+  targets,
+}) {
+  if (!targets.length) return false;
+
+  const batch = db.batch();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const preview = text.length > 120 ? `${text.slice(0, 117)}...` : text;
+  const title = 'New chat message';
+  const body = `${senderName}: ${preview}`;
+
+  for (const target of targets) {
+    const notificationRef = db
+      .collection('user_notifications')
+      .doc(target.userId)
+      .collection('notifications')
+      .doc(`${houseId}_${messageId}_${target.userId}`);
+
+    batch.set(notificationRef, {
+      title,
+      body,
+      type: 'chat_message',
+      read: false,
+      createdAt: now,
+      houseId,
+      messageId,
+      senderId,
+      senderName,
+      messageText: text,
+    });
+  }
+
+  await batch.commit();
+  logNotification('chat message notification sent', {
+    houseId,
+    messageId,
+    senderId,
+    targetCount: targets.length,
+  });
+  return true;
+}
+
 async function getUserName(userId) {
   try {
     const snapshot = await db.collection('users').doc(userId).get();
@@ -265,6 +312,55 @@ async function processExpenseReminder(expenseDoc) {
   return false;
 }
 
+async function getHouseMembers(houseId, senderId) {
+  const houseSnapshot = await db.collection('houses').doc(houseId).get();
+  if (!houseSnapshot.exists) {
+    return [];
+  }
+
+  const houseData = houseSnapshot.data() || {};
+  const members = Array.isArray(houseData.members) ? houseData.members : [];
+  return members
+    .map((memberId) => (memberId || '').toString().trim())
+    .filter((memberId) => memberId && memberId !== senderId)
+    .map((userId) => ({ userId }));
+}
+
+exports.sendPushOnHouseChatMessage = functions.firestore
+  .document('house_chats/{houseId}/messages/{messageId}')
+  .onCreate(async (snap, context) => {
+    const { houseId, messageId } = context.params;
+    const data = snap.data() || {};
+    const senderId = (data.senderId || '').toString().trim();
+    const senderName = (data.senderName || 'Member').toString().trim() || 'Member';
+    const text = (data.text || '').toString().trim();
+
+    if (!houseId || !messageId || !senderId || !text) {
+      logNotification('chat push skipped', {
+        houseId,
+        messageId,
+        senderId,
+        reason: 'missing_required_fields',
+      });
+      return null;
+    }
+
+    const targets = await getHouseMembers(houseId, senderId);
+    if (!targets.length) {
+      logNotification('chat push skipped', { houseId, messageId, reason: 'no_targets' });
+      return null;
+    }
+
+    return sendHouseMessageNotificationBatch({
+      houseId,
+      messageId,
+      senderId,
+      senderName,
+      text,
+      targets,
+    });
+  });
+
 /**
  * Relay in-app notification documents to FCM using the stored user token.
  * This keeps the existing Firestore notification collection intact.
@@ -309,6 +405,20 @@ exports.sendPushOnUserNotification = functions.firestore
         notification: {
           title,
           body,
+        },
+        android: {
+          priority: 'high',
+          notification: {
+            channelId: 'roovia_channel',
+            sound: 'default',
+          },
+        },
+        apns: {
+          payload: {
+            aps: {
+              sound: 'default',
+            },
+          },
         },
         data,
       });

@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:roovia/screens/chat_screen.dart';
 import 'package:roovia/screens/login_screen.dart';
 import 'package:roovia/services/fcm_service.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -10,30 +13,22 @@ import 'firebase_options.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
   final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
   final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
-  final String? initialExpenseId = initialMessage?.data['expenseId'] as String?;
-
-  // Initialize FCM and wire up navigation for notification taps
-  await FcmService.instance.init(
-    onNotificationTap: (expenseId) async {
-      if (expenseId.isNotEmpty) {
-        navigatorKey.currentState?.push(
-          MaterialPageRoute(builder: (_) => ExpenseDetailScreen(expenseId: expenseId)),
-        );
-      }
-    },
+  final Map<String, String>? initialNotificationData = initialMessage?.data.map(
+    (key, value) => MapEntry(key, value.toString()),
   );
 
-  runApp(MyApp(navigatorKey: navigatorKey, initialExpenseId: initialExpenseId));
+  runApp(MyApp(navigatorKey: navigatorKey, initialNotificationData: initialNotificationData));
 }
 
 class MyApp extends StatefulWidget {
   final GlobalKey<NavigatorState>? navigatorKey;
-  final String? initialExpenseId;
+  final Map<String, String>? initialNotificationData;
 
-  const MyApp({super.key, this.navigatorKey, this.initialExpenseId});
+  const MyApp({super.key, this.navigatorKey, this.initialNotificationData});
 
   @override
   State<MyApp> createState() => _MyAppState();
@@ -41,20 +36,58 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   bool _initialRouteHandled = false;
+  bool _fcmInitialized = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _fcmInitialized) return;
+      _fcmInitialized = true;
+      unawaited(
+        FcmService.instance.init(
+          onNotificationTap: (payload) async {
+            final expenseId = payload['expenseId']?.trim() ?? '';
+            final houseId = payload['houseId']?.trim() ?? '';
+
+            if (expenseId.isNotEmpty) {
+              widget.navigatorKey?.currentState?.push(
+                MaterialPageRoute(builder: (_) => ExpenseDetailScreen(expenseId: expenseId)),
+              );
+            } else if (houseId.isNotEmpty) {
+              widget.navigatorKey?.currentState?.push(
+                MaterialPageRoute(builder: (_) => ChatScreen(houseId: houseId)),
+              );
+            }
+          },
+        ),
+      );
+    });
+  }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_initialRouteHandled) return;
-    final expenseId = widget.initialExpenseId?.trim() ?? '';
-    if (expenseId.isEmpty) return;
+    final payload = widget.initialNotificationData;
+    if (payload == null) return;
+
+    final expenseId = payload['expenseId']?.trim() ?? '';
+    final houseId = payload['houseId']?.trim() ?? '';
+    if (expenseId.isEmpty && houseId.isEmpty) return;
 
     _initialRouteHandled = true;
     SchedulerBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      widget.navigatorKey?.currentState?.push(
-        MaterialPageRoute(builder: (_) => ExpenseDetailScreen(expenseId: expenseId)),
-      );
+      if (expenseId.isNotEmpty) {
+        widget.navigatorKey?.currentState?.push(
+          MaterialPageRoute(builder: (_) => ExpenseDetailScreen(expenseId: expenseId)),
+        );
+      } else if (houseId.isNotEmpty) {
+        widget.navigatorKey?.currentState?.push(
+          MaterialPageRoute(builder: (_) => ChatScreen(houseId: houseId)),
+        );
+      }
     });
   }
 
