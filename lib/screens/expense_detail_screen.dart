@@ -1,9 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../models/payment_proof.dart';
 import '../services/expense_service.dart';
 import '../services/house_service.dart';
+import 'payment_proof_submission_sheet.dart';
 
 class ExpenseDetailScreen extends StatefulWidget {
   final String expenseId;
@@ -58,30 +61,363 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
     return Colors.green.shade700;
   }
 
-  Future<void> _confirmMarkAsPaid(String expenseId, String participantId) async {
-    final shouldProceed = await showDialog<bool>(
+  List<PaymentProofAttachment> _parsePaymentProofs(dynamic raw) {
+    if (raw is! List) {
+      return const <PaymentProofAttachment>[];
+    }
+
+    return raw
+        .whereType<Map>()
+        .map((entry) => PaymentProofAttachment.fromMap(Map<String, dynamic>.from(entry)))
+        .where(
+          (attachment) => attachment.downloadUrl.isNotEmpty || attachment.storagePath.isNotEmpty,
+        )
+        .toList();
+  }
+
+  Future<String?> _promptRejectionReason(String participantName) async {
+    final controller = TextEditingController();
+
+    final reason = await showDialog<String>(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text("I've Sent the Money"),
-          content: const Text('Confirm that you have sent your payment for this bill.'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
+          title: const Text('Reject payment proof'),
+          content: TextField(
+            controller: controller,
+            maxLines: 3,
+            decoration: InputDecoration(
+              labelText: 'Optional reason',
+              hintText: 'Explain why $participantName needs to resubmit',
             ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
             ElevatedButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Confirm'),
+              onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+              child: const Text('Reject'),
             ),
           ],
         );
       },
     );
 
-    if (shouldProceed == true) {
-      await _expenseService.markAsPaid(expenseId, participantId);
+    controller.dispose();
+    return reason;
+  }
+
+  Future<void> _confirmMarkAsPaid(
+    String expenseId,
+    String participantId,
+    String expenseTitle,
+  ) async {
+    final submitted = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return PaymentProofSubmissionSheet(
+          expenseId: expenseId,
+          participantId: participantId,
+          expenseTitle: expenseTitle,
+        );
+      },
+    );
+
+    if (submitted == true && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Payment proof submitted')));
     }
+  }
+
+  Future<void> _openProofAttachment(PaymentProofAttachment attachment) async {
+    final uri = Uri.tryParse(attachment.downloadUrl);
+    if (uri == null) {
+      return;
+    }
+
+    if (attachment.isPdf) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+      return;
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        return Dialog(
+          insetPadding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: const BoxDecoration(
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(12),
+                    topRight: Radius.circular(12),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        attachment.fileName,
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              InteractiveViewer(
+                child: Image.network(
+                  attachment.downloadUrl,
+                  fit: BoxFit.contain,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text('Could not load image: $error'),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildProofReviewCard({
+    required String participantId,
+    required String participantName,
+    required List<PaymentProofAttachment> attachments,
+    required String note,
+    required String reviewReason,
+    required String expenseTitle,
+  }) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.blue.shade50,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.blue.shade100),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Payment proof submitted for $expenseTitle',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: Colors.blue.shade900,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      participantName,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Colors.blue.shade700,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade100,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  attachments.isEmpty
+                      ? 'No files'
+                      : '${attachments.length} file${attachments.length == 1 ? '' : 's'}',
+                  style: TextStyle(color: Colors.blue.shade900, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+          if (note.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.blue.shade100),
+              ),
+              child: Text(note, style: Theme.of(context).textTheme.bodyMedium),
+            ),
+          ],
+          if (reviewReason.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.red.shade100),
+              ),
+              child: Text(
+                'Rejection reason: $reviewReason',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Colors.red.shade800,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+          if (attachments.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: attachments.map((attachment) {
+                return InkWell(
+                  onTap: () => _openProofAttachment(attachment),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    width: 122,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.blue.shade100),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          height: 72,
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            color: attachment.isPdf
+                                ? const Color(0xFFFDF4EA)
+                                : const Color(0xFFF4F7F5),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: attachment.isPdf
+                              ? const Icon(
+                                  Icons.picture_as_pdf_rounded,
+                                  color: Color(0xFFC2410C),
+                                  size: 34,
+                                )
+                              : ClipRRect(
+                                  borderRadius: BorderRadius.circular(10),
+                                  child: Image.network(
+                                    attachment.downloadUrl,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (context, error, stackTrace) {
+                                      return const Center(
+                                        child: Icon(Icons.image_not_supported_outlined),
+                                      );
+                                    },
+                                  ),
+                                ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          attachment.isPdf ? 'PDF' : 'Image',
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: Colors.blue.shade900,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          attachment.fileName,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(
+                            context,
+                          ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ] else ...[
+            const SizedBox(height: 10),
+            Text(
+              'No files were attached. You can still approve or reject this payment.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.blue.shade700),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    try {
+                      await _expenseService.approvePaymentProof(widget.expenseId, participantId);
+                      messenger.showSnackBar(
+                        const SnackBar(content: Text('Payment proof approved')),
+                      );
+                    } catch (error) {
+                      messenger.showSnackBar(SnackBar(content: Text('Error: ${error.toString()}')));
+                    }
+                  },
+                  child: const Text('Approve'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade700),
+                  onPressed: () async {
+                    final reason = await _promptRejectionReason(participantName);
+                    if (reason == null) {
+                      return;
+                    }
+
+                    final messenger = ScaffoldMessenger.of(context);
+                    try {
+                      await _expenseService.rejectPaymentProof(
+                        widget.expenseId,
+                        participantId,
+                        reason: reason,
+                      );
+                      messenger.showSnackBar(
+                        const SnackBar(content: Text('Payment proof rejected')),
+                      );
+                    } catch (error) {
+                      messenger.showSnackBar(SnackBar(content: Text('Error: ${error.toString()}')));
+                    }
+                  },
+                  child: const Text('Reject'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -423,6 +759,13 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
                               final amount = (d['amountOwed'] as num?)?.toDouble() ?? 0.0;
                               final participantName = namesById[participantId] ?? 'Unknown user';
                               final isSelf = participantId == _uid;
+                              final paymentProofNote =
+                                  (d['paymentProofNote'] as String?)?.trim() ?? '';
+                              final paymentProofReviewReason =
+                                  (d['paymentProofReviewReason'] as String?)?.trim() ?? '';
+                              final paymentProofAttachments = _parsePaymentProofs(
+                                d['paymentProofs'],
+                              );
 
                               return Card(
                                 shape: RoundedRectangleBorder(
@@ -475,16 +818,13 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
                                         ],
                                       ),
                                       if (isOwner && status == 'paid' && !isSelf) ...[
-                                        const SizedBox(height: 16),
-                                        Align(
-                                          alignment: Alignment.centerRight,
-                                          child: TextButton(
-                                            onPressed: () => _expenseService.confirmPayment(
-                                              widget.expenseId,
-                                              participantId,
-                                            ),
-                                            child: const Text('Confirm Payment'),
-                                          ),
+                                        _buildProofReviewCard(
+                                          participantId: participantId,
+                                          participantName: participantName,
+                                          attachments: paymentProofAttachments,
+                                          note: paymentProofNote,
+                                          reviewReason: paymentProofReviewReason,
+                                          expenseTitle: title,
                                         ),
                                       ],
                                       if (!isOwner && isSelf && status == 'pending') ...[
@@ -522,9 +862,12 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
                                         SizedBox(
                                           width: double.infinity,
                                           child: ElevatedButton(
-                                            onPressed: () =>
-                                                _confirmMarkAsPaid(widget.expenseId, participantId),
-                                            child: const Text("I've Sent the Money"),
+                                            onPressed: () => _confirmMarkAsPaid(
+                                              widget.expenseId,
+                                              participantId,
+                                              title,
+                                            ),
+                                            child: const Text('Submit payment proof'),
                                           ),
                                         ),
                                       ],

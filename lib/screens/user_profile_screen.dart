@@ -80,6 +80,14 @@ class UserProfileScreen extends StatelessWidget {
           final rating = _toSafeDouble(data['rating']);
           final bio = _toSafeString(data['bio']);
           final initials = _buildInitials(name, username, userId);
+          final fallbackAvatar = CircleAvatar(
+            radius: 52,
+            backgroundColor: _surfaceGreen,
+            child: Text(
+              initials,
+              style: const TextStyle(color: _darkGreen, fontWeight: FontWeight.w800, fontSize: 26),
+            ),
+          );
 
           return ListView(
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
@@ -98,20 +106,26 @@ class UserProfileScreen extends StatelessWidget {
                     profileImageUrl.isNotEmpty
                         ? CircleAvatar(
                             radius: 52,
-                            backgroundImage: CachedNetworkImageProvider(profileImageUrl),
-                          )
-                        : CircleAvatar(
-                            radius: 52,
                             backgroundColor: _surfaceGreen,
-                            child: Text(
-                              initials,
-                              style: const TextStyle(
-                                color: _darkGreen,
-                                fontWeight: FontWeight.w800,
-                                fontSize: 26,
+                            child: ClipOval(
+                              child: CachedNetworkImage(
+                                imageUrl: profileImageUrl,
+                                width: 104,
+                                height: 104,
+                                fit: BoxFit.cover,
+                                placeholder: (context, url) => const SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: _darkGreen,
+                                  ),
+                                ),
+                                errorWidget: (context, url, error) => fallbackAvatar,
                               ),
                             ),
-                          ),
+                          )
+                        : fallbackAvatar,
                     const SizedBox(height: 14),
                     Text(
                       name.isEmpty ? 'Roovia Member' : name,

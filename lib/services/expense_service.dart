@@ -1,16 +1,22 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:intl/intl.dart';
 
 import '../models/expense_model.dart';
+import '../models/payment_proof.dart';
 
 class ExpenseService {
   static const Duration _networkTimeout = Duration(seconds: 15);
+  static const int _maxProofAttachmentCount = 3;
+  static const int _maxProofAttachmentSizeBytes = 12 * 1024 * 1024;
 
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _db = FirebaseFirestore.instance;
+  final FirebaseStorage _storage = FirebaseStorage.instance;
 
   User get _currentUser {
     final user = _auth.currentUser;
@@ -36,6 +42,148 @@ class ExpenseService {
 
   String _notificationDocId(String expenseId, String userId, String kind) {
     return '${expenseId.trim()}_${userId.trim()}_$kind';
+  }
+
+  String _safePathSegment(String value) {
+    final cleaned = value.trim().replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '_');
+    return cleaned.isEmpty ? 'proof' : cleaned;
+  }
+
+  String _guessProofKind(PaymentProofInput input) {
+    if (input.isPdf || input.mimeType.toLowerCase().contains('pdf')) {
+      return 'pdf';
+    }
+    return 'image';
+  }
+
+  String _guessMimeType(PaymentProofInput input) {
+    final lowerMime = input.mimeType.trim().toLowerCase();
+    if (lowerMime.isNotEmpty) {
+      return lowerMime;
+    }
+    return _guessProofKind(input) == 'pdf' ? 'application/pdf' : 'image/jpeg';
+  }
+
+  Future<String> _getDownloadUrlWithRetry(Reference reference) async {
+    const maxAttempts = 3;
+    var attempt = 0;
+
+    while (true) {
+      attempt += 1;
+      try {
+        return await reference.getDownloadURL();
+      } on FirebaseException catch (error) {
+        final shouldRetry = error.code == 'object-not-found' && attempt < maxAttempts;
+        if (!shouldRetry) {
+          rethrow;
+        }
+      }
+
+      await Future<void>.delayed(Duration(milliseconds: 250 * attempt));
+    }
+  }
+
+  String _proofStoragePath({
+    required String expenseId,
+    required String userId,
+    required String fileName,
+    required int revision,
+    required int index,
+  }) {
+    final safeExpenseId = _safePathSegment(expenseId);
+    final safeUserId = _safePathSegment(userId);
+    final safeFileName = _safePathSegment(fileName);
+    final uniqueStamp = DateTime.now().microsecondsSinceEpoch + Random().nextInt(9999);
+    return 'bills/$safeExpenseId/payments/$safeUserId/proofs/${revision}_${index}_${uniqueStamp}_$safeFileName';
+  }
+
+  Future<List<PaymentProofAttachment>> _uploadProofAttachments({
+    required String expenseId,
+    required String userId,
+    required int revision,
+    required List<PaymentProofInput> attachments,
+    void Function(int completed, int total)? onUploadProgress,
+  }) async {
+    if (attachments.length > _maxProofAttachmentCount) {
+      throw StateError('You can attach at most $_maxProofAttachmentCount files');
+    }
+
+    final uploaded = <PaymentProofAttachment>[];
+    for (var index = 0; index < attachments.length; index += 1) {
+      final input = attachments[index];
+      if (input.sizeBytes <= 0) {
+        throw StateError('One of the attached files is empty');
+      }
+      if (input.sizeBytes > _maxProofAttachmentSizeBytes) {
+        throw StateError('Each proof file must be smaller than 12 MB');
+      }
+
+      final kind = _guessProofKind(input);
+      if (kind != 'pdf') {
+        throw StateError('Only PDF payment proofs are supported');
+      }
+      final mimeType = _guessMimeType(input);
+      final fileName = _safePathSegment(input.fileName);
+      final storagePath = _proofStoragePath(
+        expenseId: expenseId,
+        userId: userId,
+        fileName: fileName,
+        revision: revision,
+        index: index,
+      );
+
+      final reference = _storage.ref(storagePath);
+      final uploadTask = reference.putData(input.bytes, SettableMetadata(contentType: mimeType));
+      final snapshot = await uploadTask;
+      final downloadUrl = await _getDownloadUrlWithRetry(snapshot.ref);
+
+      uploaded.add(
+        PaymentProofAttachment(
+          fileName: input.fileName,
+          downloadUrl: downloadUrl,
+          storagePath: storagePath,
+          mimeType: mimeType,
+          kind: kind,
+          sizeBytes: input.sizeBytes,
+          uploadedAt: DateTime.now(),
+        ),
+      );
+
+      if (onUploadProgress != null) {
+        onUploadProgress(index + 1, attachments.length);
+      }
+    }
+
+    return uploaded;
+  }
+
+  Future<void> _deleteProofAttachments(List<PaymentProofAttachment> attachments) async {
+    for (final attachment in attachments) {
+      final path = attachment.storagePath.trim();
+      if (path.isEmpty) {
+        continue;
+      }
+
+      try {
+        await _storage.ref(path).delete();
+      } catch (_) {
+        // Best-effort cleanup.
+      }
+    }
+  }
+
+  List<PaymentProofAttachment> _parseAttachments(dynamic raw) {
+    if (raw is! List) {
+      return const <PaymentProofAttachment>[];
+    }
+
+    return raw
+        .whereType<Map>()
+        .map((entry) => PaymentProofAttachment.fromMap(Map<String, dynamic>.from(entry)))
+        .where(
+          (attachment) => attachment.downloadUrl.isNotEmpty || attachment.storagePath.isNotEmpty,
+        )
+        .toList();
   }
 
   Stream<List<ExpenseModel>> streamExpenses(String houseId) {
@@ -178,7 +326,13 @@ class ExpenseService {
     return expenseRef.id;
   }
 
-  Future<void> markAsPaid(String expenseId, String userId) async {
+  Future<void> markAsPaid(
+    String expenseId,
+    String userId, {
+    List<PaymentProofInput> attachments = const [],
+    String note = '',
+    void Function(int completed, int total)? onUploadProgress,
+  }) async {
     final trimmedExpenseId = expenseId.trim();
     final trimmedUserId = userId.trim();
 
@@ -191,33 +345,66 @@ class ExpenseService {
       throw StateError('You can only mark your own payment as paid');
     }
 
-    final participantRef = _db
-        .collection('house_expenses')
-        .doc(trimmedExpenseId)
-        .collection('participants')
-        .doc(trimmedUserId);
+    final expenseRef = _db.collection('house_expenses').doc(trimmedExpenseId);
+    final expenseSnapshot = await expenseRef.get().timeout(_networkTimeout);
+    if (!expenseSnapshot.exists) {
+      throw StateError('Expense not found');
+    }
+
+    final expenseData = expenseSnapshot.data() ?? const <String, dynamic>{};
+    final expenseTitle = (expenseData['title'] as String?) ?? 'a bill';
+    final creatorId = (expenseData['createdBy'] as String?) ?? '';
+
+    final participantRef = expenseRef.collection('participants').doc(trimmedUserId);
     final participantSnapshot = await participantRef.get().timeout(_networkTimeout);
 
     if (!participantSnapshot.exists) {
       throw StateError('Participant record not found');
     }
 
-    final status = participantSnapshot.data()?['status'] as String? ?? 'pending';
+    final participantData = participantSnapshot.data() ?? const <String, dynamic>{};
+    final status = participantData['status'] as String? ?? 'pending';
     // Only allow pending -> paid transition
     if (status != 'pending') {
       throw StateError('Payment can only be marked from pending state');
     }
 
-    await participantRef
-        .update({'status': 'paid', 'paidAt': FieldValue.serverTimestamp()})
-        .timeout(_networkTimeout);
+    final currentRevision = (participantData['paymentProofRevision'] as num?)?.toInt() ?? 0;
+    final proofRevision = currentRevision + 1;
+    final cleanedNote = note.trim();
+    final proofAttachments = attachments.isEmpty
+        ? const <PaymentProofAttachment>[]
+        : await _uploadProofAttachments(
+            expenseId: trimmedExpenseId,
+            userId: trimmedUserId,
+            revision: proofRevision,
+            attachments: attachments,
+            onUploadProgress: onUploadProgress,
+          );
+
+    try {
+      await participantRef
+          .update({
+            'status': 'paid',
+            'paidAt': FieldValue.serverTimestamp(),
+            'paymentProofStatus': 'submitted',
+            'paymentProofRevision': proofRevision,
+            'paymentProofNote': cleanedNote.isEmpty ? null : cleanedNote,
+            'paymentProofs': proofAttachments.map((attachment) => attachment.toMap()).toList(),
+            'paymentProofSubmittedAt': FieldValue.serverTimestamp(),
+            'paymentProofReviewedAt': null,
+            'paymentProofReviewReason': null,
+          })
+          .timeout(_networkTimeout);
+    } catch (error) {
+      if (proofAttachments.isNotEmpty) {
+        await _deleteProofAttachments(proofAttachments);
+      }
+      rethrow;
+    }
 
     // Notify the expense creator that this participant marked as paid.
     try {
-      final expenseRef = _db.collection('house_expenses').doc(trimmedExpenseId);
-      final expenseSnapshot = await expenseRef.get().timeout(_networkTimeout);
-      final expenseData = expenseSnapshot.data() ?? <String, dynamic>{};
-      final creatorId = (expenseData['createdBy'] as String?) ?? '';
       if (creatorId.isNotEmpty) {
         // Get the user's name for better notification text
         final userDoc = await _db.collection('users').doc(trimmedUserId).get();
@@ -227,25 +414,43 @@ class ExpenseService {
             : (userData['username'] as String?)?.trim().isNotEmpty == true
             ? (userData['username'] as String).trim()
             : 'A member';
-        final expenseTitle = (expenseData['title'] as String?) ?? 'a bill';
-        final amountOwed = (participantSnapshot.data()?['amountOwed'] as num?)?.toDouble() ?? 0.0;
+        final amountOwed = (participantData['amountOwed'] as num?)?.toDouble() ?? 0.0;
+        final proofSummary = proofAttachments.isEmpty
+            ? 'Payment proof submitted'
+            : '${proofAttachments.length} proof file${proofAttachments.length == 1 ? '' : 's'} uploaded';
+        final notificationTitle = proofAttachments.isEmpty && cleanedNote.isEmpty
+            ? 'Payment submitted'
+            : 'Payment proof uploaded';
+        final notificationBody = proofAttachments.isEmpty && cleanedNote.isEmpty
+            ? '$userName marked $expenseTitle as paid'
+            : '$userName uploaded payment proof for $expenseTitle';
         await _db
             .collection('user_notifications')
             .doc(creatorId)
             .collection('notifications')
-            .doc(_notificationDocId(trimmedExpenseId, trimmedUserId, 'payment_submitted'))
+            .doc(
+              _notificationDocId(
+                trimmedExpenseId,
+                trimmedUserId,
+                'payment_proof_submitted_$proofRevision',
+              ),
+            )
             .set({
-              'title': 'Payment Submitted',
-              'body': '$userName paid ₺${amountOwed.toStringAsFixed(2)} for $expenseTitle',
+              'title': notificationTitle,
+              'body': notificationBody,
+              'details': proofSummary,
               'createdAt': FieldValue.serverTimestamp(),
               'read': false,
-              'type': 'payment_marked',
-              'houseId': expenseSnapshot.data()?['houseId'] ?? '',
+              'type': 'payment_proof_submitted',
+              'houseId': expenseData['houseId'] ?? '',
               'expenseId': trimmedExpenseId,
               'fromUserId': trimmedUserId,
               'userName': userName,
               'billTitle': expenseTitle,
               'billAmount': amountOwed,
+              'paymentProofRevision': proofRevision,
+              'paymentProofCount': proofAttachments.length,
+              if (cleanedNote.isNotEmpty) 'paymentProofNote': cleanedNote,
             })
             .timeout(_networkTimeout);
       }
@@ -253,10 +458,6 @@ class ExpenseService {
 
     // After marking as paid, check if all non-owner participants have marked as 'paid'.
     try {
-      final expenseRef = _db.collection('house_expenses').doc(trimmedExpenseId);
-      final expenseSnapshot = await expenseRef.get().timeout(_networkTimeout);
-      final expenseData = expenseSnapshot.data() ?? <String, dynamic>{};
-      final creatorId = (expenseData['createdBy'] as String?) ?? '';
       if (creatorId.isNotEmpty) {
         final participantsSnapshot = await expenseRef
             .collection('participants')
@@ -298,6 +499,10 @@ class ExpenseService {
   }
 
   Future<void> confirmPayment(String expenseId, String userId) async {
+    await approvePaymentProof(expenseId, userId);
+  }
+
+  Future<void> approvePaymentProof(String expenseId, String userId) async {
     final trimmedExpenseId = expenseId.trim();
     final trimmedUserId = userId.trim();
 
@@ -329,8 +534,18 @@ class ExpenseService {
       throw StateError('Payment must be marked as paid first');
     }
 
+    final revision = (participantData['paymentProofRevision'] as num?)?.toInt() ?? 0;
+    final note = (participantData['paymentProofNote'] as String?)?.trim() ?? '';
+    final attachments = _parseAttachments(participantData['paymentProofs']);
+
     await participantRef
-        .update({'status': 'confirmed', 'confirmedAt': FieldValue.serverTimestamp()})
+        .update({
+          'status': 'confirmed',
+          'confirmedAt': FieldValue.serverTimestamp(),
+          'paymentProofStatus': 'approved',
+          'paymentProofReviewedAt': FieldValue.serverTimestamp(),
+          'paymentProofReviewReason': null,
+        })
         .timeout(_networkTimeout);
 
     // Notify the participant that the owner confirmed their payment.
@@ -350,20 +565,24 @@ class ExpenseService {
           .collection('user_notifications')
           .doc(trimmedUserId)
           .collection('notifications')
-          .doc(_notificationDocId(trimmedExpenseId, trimmedUserId, 'payment_confirmed'))
+          .doc(
+            _notificationDocId(trimmedExpenseId, trimmedUserId, 'payment_proof_approved_$revision'),
+          )
           .set({
-            'title': 'Payment Confirmed',
-            'body':
-                'Your ₺${amountOwed.toStringAsFixed(2)} payment for $expenseTitle was confirmed',
+            'title': 'Payment proof approved',
+            'body': 'Your payment proof for $expenseTitle was approved',
             'createdAt': FieldValue.serverTimestamp(),
             'read': false,
-            'type': 'payment_confirmed',
+            'type': 'payment_proof_approved',
             'houseId': expenseData['houseId'] ?? '',
             'expenseId': trimmedExpenseId,
             'fromUserId': _currentUser.uid,
             'userName': userName,
             'billTitle': expenseTitle,
             'billAmount': amountOwed,
+            'paymentProofRevision': revision,
+            'paymentProofCount': attachments.length,
+            if (note.isNotEmpty) 'paymentProofNote': note,
           })
           .timeout(_networkTimeout);
     } catch (_) {}
@@ -411,6 +630,96 @@ class ExpenseService {
     } else {
       await expenseRef.update({'status': 'pending'}).timeout(_networkTimeout);
     }
+  }
+
+  Future<void> rejectPaymentProof(String expenseId, String userId, {String reason = ''}) async {
+    final trimmedExpenseId = expenseId.trim();
+    final trimmedUserId = userId.trim();
+    final trimmedReason = reason.trim();
+
+    if (trimmedExpenseId.isEmpty || trimmedUserId.isEmpty) {
+      throw ArgumentError('Expense ID and user ID cannot be empty');
+    }
+
+    final expenseRef = _db.collection('house_expenses').doc(trimmedExpenseId);
+    final expenseSnapshot = await expenseRef.get().timeout(_networkTimeout);
+    final expenseData = expenseSnapshot.data();
+
+    if (!expenseSnapshot.exists || expenseData == null) {
+      throw StateError('Expense not found');
+    }
+
+    if ((expenseData['createdBy'] as String? ?? '') != _currentUser.uid) {
+      throw StateError('Only the expense creator can reject payments');
+    }
+
+    final participantRef = expenseRef.collection('participants').doc(trimmedUserId);
+    final participantSnapshot = await participantRef.get().timeout(_networkTimeout);
+    if (!participantSnapshot.exists) {
+      throw StateError('Participant record not found');
+    }
+
+    final participantData = participantSnapshot.data() ?? const <String, dynamic>{};
+    final currentStatus = participantData['status'] as String? ?? 'pending';
+    if (currentStatus != 'paid') {
+      throw StateError('Payment must be marked as paid first');
+    }
+
+    final revision = (participantData['paymentProofRevision'] as num?)?.toInt() ?? 0;
+    final attachments = _parseAttachments(participantData['paymentProofs']);
+
+    await participantRef
+        .update({
+          'status': 'pending',
+          'paidAt': null,
+          'confirmedAt': null,
+          'paymentProofStatus': 'rejected',
+          'paymentProofReviewedAt': FieldValue.serverTimestamp(),
+          'paymentProofReviewReason': trimmedReason.isEmpty ? null : trimmedReason,
+          'paymentProofNote': null,
+          'paymentProofs': <Map<String, dynamic>>[],
+        })
+        .timeout(_networkTimeout);
+
+    await expenseRef.update({'status': 'pending'}).timeout(_networkTimeout);
+
+    await _deleteProofAttachments(attachments);
+
+    try {
+      final userDoc = await _db.collection('users').doc(trimmedUserId).get();
+      final userData = userDoc.data() ?? const <String, dynamic>{};
+      final userName = (userData['name'] as String?)?.trim().isNotEmpty == true
+          ? (userData['name'] as String).trim()
+          : (userData['username'] as String?)?.trim().isNotEmpty == true
+          ? (userData['username'] as String).trim()
+          : 'Your';
+      final expenseTitle = (expenseData['title'] as String?) ?? 'a bill';
+
+      await _db
+          .collection('user_notifications')
+          .doc(trimmedUserId)
+          .collection('notifications')
+          .doc(
+            _notificationDocId(trimmedExpenseId, trimmedUserId, 'payment_proof_rejected_$revision'),
+          )
+          .set({
+            'title': 'Payment proof rejected',
+            'body': trimmedReason.isNotEmpty
+                ? 'Your payment proof for $expenseTitle was rejected: $trimmedReason'
+                : 'Your payment proof for $expenseTitle was rejected',
+            'createdAt': FieldValue.serverTimestamp(),
+            'read': false,
+            'type': 'payment_proof_rejected',
+            'houseId': expenseData['houseId'] ?? '',
+            'expenseId': trimmedExpenseId,
+            'fromUserId': _currentUser.uid,
+            'userName': userName,
+            'billTitle': expenseTitle,
+            'paymentProofRevision': revision,
+            if (trimmedReason.isNotEmpty) 'paymentProofReviewReason': trimmedReason,
+          })
+          .timeout(_networkTimeout);
+    } catch (_) {}
   }
 
   /// Confirms all participants who have status == 'paid' for the given expense.

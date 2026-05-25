@@ -200,6 +200,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _buildProfileHeader(BuildContext context, RooviaUser user) {
     final imageUrl = user.profileImageUrl.trim();
     final avatarInitial = _avatarInitial(user.username);
+    final fallbackAvatar = CircleAvatar(
+      radius: 56,
+      backgroundColor: _surfaceGreen,
+      child: Text(
+        avatarInitial,
+        textAlign: TextAlign.center,
+        style: const TextStyle(color: _darkGreen, fontSize: 28, fontWeight: FontWeight.w800),
+      ),
+    );
 
     return Container(
       padding: const EdgeInsets.all(24),
@@ -213,20 +222,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: Column(
         children: [
           imageUrl.isNotEmpty
-              ? CircleAvatar(radius: 56, backgroundImage: CachedNetworkImageProvider(imageUrl))
-              : CircleAvatar(
+              ? CircleAvatar(
                   radius: 56,
                   backgroundColor: _surfaceGreen,
-                  child: Text(
-                    avatarInitial,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: _darkGreen,
-                      fontSize: 28,
-                      fontWeight: FontWeight.w800,
+                  child: ClipOval(
+                    child: CachedNetworkImage(
+                      imageUrl: imageUrl,
+                      width: 112,
+                      height: 112,
+                      fit: BoxFit.cover,
+                      placeholder: (context, url) => const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: _darkGreen),
+                      ),
+                      errorWidget: (context, url, error) => fallbackAvatar,
                     ),
                   ),
-                ),
+                )
+              : fallbackAvatar,
           const SizedBox(height: 16),
           Text(
             user.name,

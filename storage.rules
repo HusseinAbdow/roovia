@@ -1,18 +1,65 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    // Profile pictures - users can only upload/update their own
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function expenseDoc(expenseId) {
+      return firestore.get(/databases/(default)/documents/house_expenses/$(expenseId));
+    }
+
+    function expenseExists(expenseId) {
+      return firestore.exists(/databases/(default)/documents/house_expenses/$(expenseId));
+    }
+
+    function isExpenseOwner(expenseId) {
+      return signedIn() && expenseExists(expenseId) && expenseDoc(expenseId).data.createdBy == request.auth.uid;
+    }
+
+    function isExpenseParticipant(expenseId, userId) {
+      return signedIn() && expenseExists(expenseId) && firestore.exists(/databases/(default)/documents/house_expenses/$(expenseId)/participants/$(userId));
+    }
+
+    function canAccessExpenseProof(expenseId, userId) {
+      return isExpenseOwner(expenseId) || (signedIn() && request.auth.uid == userId && isExpenseParticipant(expenseId, userId));
+    }
+
+    function validAvatarContent() {
+      return request.resource.size < 5 * 1024 * 1024
+          && request.resource.contentType.matches('image/.*');
+    }
+
+    // Preferred profile avatar path.
+    match /users/{uid}/profile/{allPaths=**} {
+      allow read: if signedIn();
+      allow create, update: if signedIn()
+          && request.auth.uid == uid
+          && validAvatarContent();
+      allow delete: if signedIn() && request.auth.uid == uid;
+    }
+
+    // Legacy profile image path kept for backward compatibility.
     match /profile_images/{uid}/{allPaths=**} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && request.auth.uid == uid;
-      allow delete: if request.auth != null && request.auth.uid == uid;
+      allow read: if signedIn();
+      allow write: if signedIn() && request.auth.uid == uid && validAvatarContent();
+      allow delete: if signedIn() && request.auth.uid == uid;
     }
     
     // House images if needed in future - members of house can upload
     match /house_images/{houseId}/{allPaths=**} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null; // Can add more restrictive rules later
-      allow delete: if request.auth != null;
+      allow read: if signedIn();
+      allow write: if signedIn(); // Can add more restrictive rules later
+      allow delete: if signedIn();
+    }
+
+    // Bill payment proof uploads - only the owner or the participant may manage files.
+    match /bills/{billId}/payments/{userId}/proofs/{proofFile} {
+      allow read: if canAccessExpenseProof(billId, userId);
+      allow create, update: if canAccessExpenseProof(billId, userId)
+          && request.resource.size < 12 * 1024 * 1024
+          && request.resource.contentType == 'application/pdf';
+      allow delete: if canAccessExpenseProof(billId, userId);
     }
   }
 }
