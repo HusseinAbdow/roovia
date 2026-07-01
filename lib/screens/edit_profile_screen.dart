@@ -1,8 +1,11 @@
 import 'dart:typed_data';
+import 'dart:io';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:image_cropper/image_cropper.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
 
 import '../models/user_model.dart';
 import '../services/user_service.dart';
@@ -98,58 +101,84 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     if (_saving || _uploadingAvatar) {
       return;
     }
-
-    final picked = await _imagePicker.pickImage(
-      source: source,
-      imageQuality: 82,
-      maxWidth: 1600,
-      maxHeight: 1600,
-      requestFullMetadata: false,
-    );
+    final picked = await _imagePicker.pickImage(source: source, requestFullMetadata: false);
 
     if (picked == null) {
       return;
     }
 
-    final bytes = await picked.readAsBytes();
-    if (bytes.isEmpty) {
-      if (!mounted) {
-        return;
-      }
+    // Open cropper before uploading. If user cancels, do not upload.
+    final croppedFile = await ImageCropper().cropImage(
+      sourcePath: picked.path,
+      uiSettings: [
+        AndroidUiSettings(
+          toolbarTitle: 'Crop avatar',
+          toolbarColor: _darkGreen,
+          toolbarWidgetColor: Colors.white,
+          initAspectRatio: CropAspectRatioPreset.square,
+          lockAspectRatio: true,
+          hideBottomControls: false,
+        ),
+        IOSUiSettings(title: 'Crop avatar', aspectRatioLockEnabled: true),
+      ],
+    );
+
+    if (croppedFile == null) {
+      // User cancelled crop — do nothing.
+      return;
+    }
+
+    final rawBytes = await File(croppedFile.path).readAsBytes();
+    if (rawBytes.isEmpty) {
+      if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Selected image could not be read.')));
       return;
     }
 
-    if (!mounted) {
-      return;
+    // Compress if necessary (goal: keep under 5MB and reasonable quality)
+    Uint8List finalBytes = rawBytes;
+    try {
+      if (rawBytes.lengthInBytes > 1024 * 1024) {
+        final compressed = await FlutterImageCompress.compressWithList(
+          rawBytes,
+          quality: 88,
+          minWidth: 800,
+          minHeight: 800,
+          rotate: 0,
+        );
+        if (compressed.isNotEmpty) {
+          finalBytes = Uint8List.fromList(compressed);
+        }
+      }
+    } catch (_) {
+      // Compression is best-effort — fall back to original bytes on failure.
+      finalBytes = rawBytes;
     }
+
+    if (!mounted) return;
 
     setState(() {
       _uploadingAvatar = true;
       _avatarUploadProgress = 0;
-      _localAvatarPreview = bytes;
+      _localAvatarPreview = finalBytes;
     });
 
     try {
-      final mimeType = (picked.mimeType ?? 'image/jpeg').toLowerCase();
+      final mimeType = _mimeFromPath(croppedFile.path);
       final uploadedUrl = await _userService.uploadProfileImage(
-        imageBytes: bytes,
+        imageBytes: finalBytes,
         mimeType: mimeType,
         onProgress: (progress) {
-          if (!mounted) {
-            return;
-          }
+          if (!mounted) return;
           setState(() {
             _avatarUploadProgress = progress;
           });
         },
       );
 
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
 
       setState(() {
         _profileImageUrl = uploadedUrl;
@@ -160,17 +189,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         context,
       ).showSnackBar(const SnackBar(content: Text('Profile photo updated.')));
     } on UserServiceException catch (error) {
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message)));
       setState(() {
         _localAvatarPreview = null;
       });
     } catch (_) {
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Unable to upload image right now. Please try again.')),
       );
@@ -187,12 +212,19 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     }
   }
 
+  String _mimeFromPath(String path) {
+    final lower = path.toLowerCase();
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    return 'image/jpeg';
+  }
+
   Future<void> _showAvatarActions() async {
     if (_saving || _uploadingAvatar) {
       return;
     }
 
-    await showModalBottomSheet<void>(
+    final selectedSource = await showModalBottomSheet<ImageSource?>(
       context: context,
       builder: (context) {
         final hasImage = _profileImageUrl.trim().isNotEmpty;
@@ -204,16 +236,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 leading: const Icon(Icons.photo_library_outlined),
                 title: const Text('Choose from gallery'),
                 onTap: () {
-                  Navigator.of(context).pop();
-                  _pickAndUploadAvatar(ImageSource.gallery);
+                  Navigator.of(context).pop(ImageSource.gallery);
                 },
               ),
               ListTile(
                 leading: const Icon(Icons.photo_camera_outlined),
                 title: const Text('Take photo'),
                 onTap: () {
-                  Navigator.of(context).pop();
-                  _pickAndUploadAvatar(ImageSource.camera);
+                  Navigator.of(context).pop(ImageSource.camera);
                 },
               ),
               if (hasImage)
@@ -230,6 +260,17 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         );
       },
     );
+
+    if (!mounted || selectedSource == null) {
+      return;
+    }
+
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    if (!mounted) {
+      return;
+    }
+
+    await _pickAndUploadAvatar(selectedSource);
   }
 
   Future<void> _removeAvatar() async {

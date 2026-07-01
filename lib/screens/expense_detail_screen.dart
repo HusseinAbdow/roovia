@@ -391,12 +391,11 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
                 child: ElevatedButton(
                   style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade700),
                   onPressed: () async {
+                    final messenger = ScaffoldMessenger.of(context);
                     final reason = await _promptRejectionReason(participantName);
                     if (reason == null) {
                       return;
                     }
-
-                    final messenger = ScaffoldMessenger.of(context);
                     try {
                       await _expenseService.rejectPaymentProof(
                         widget.expenseId,

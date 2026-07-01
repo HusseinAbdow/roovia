@@ -185,7 +185,7 @@ class FcmService {
     });
   }
 
-  Future<void> requestPermission() async {
+  Future<NotificationSettings> requestPermission() async {
     final settings = await _messaging.requestPermission(
       alert: true,
       announcement: false,
@@ -196,6 +196,12 @@ class FcmService {
       sound: true,
     );
     debugPrint('FCM permission status: ${settings.authorizationStatus}');
+    return settings;
+  }
+
+  Future<void> refreshNotificationRegistration() async {
+    await requestPermission();
+    await _saveTokenToDatabaseIfSignedIn(await _messaging.getToken());
   }
 
   Future<void> _saveTokenToDatabaseIfSignedIn(String? token) async {

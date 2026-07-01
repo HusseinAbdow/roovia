@@ -235,6 +235,7 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen> {
   Future<void> _showUpdateMonthlyCostsSheet(House house) async {
     final currentUserId = _auth.currentUser?.uid ?? '';
     final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
 
     if (house.leaderId != currentUserId) {
       messenger.showSnackBar(
@@ -426,7 +427,7 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen> {
                                       return;
                                     }
 
-                                    Navigator.of(context).pop();
+                                    navigator.pop();
                                     messenger.showSnackBar(
                                       const SnackBar(content: Text('Monthly costs updated')),
                                     );

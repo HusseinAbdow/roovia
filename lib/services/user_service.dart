@@ -140,16 +140,15 @@ class UserService {
     final storagePath = _profileImagePath(user.uid, extension);
     final reference = _storage.ref(storagePath);
     final uploadTask = reference.putData(imageBytes, SettableMetadata(contentType: normalizedMime));
-
-    if (onProgress != null) {
-      uploadTask.snapshotEvents.listen((snapshotEvent) {
-        final total = snapshotEvent.totalBytes;
-        if (total <= 0) {
-          return;
-        }
-        onProgress((snapshotEvent.bytesTransferred / total).clamp(0, 1));
-      });
-    }
+    final progressSubscription = onProgress == null
+        ? null
+        : uploadTask.snapshotEvents.listen((snapshotEvent) {
+            final total = snapshotEvent.totalBytes;
+            if (total <= 0) {
+              return;
+            }
+            onProgress((snapshotEvent.bytesTransferred / total).clamp(0, 1));
+          });
 
     try {
       final uploadSnapshot = await uploadTask.timeout(_storageTimeout);
@@ -182,6 +181,8 @@ class UserService {
       throw UserServiceException(error.message ?? 'Unable to upload profile image right now.');
     } on TimeoutException {
       throw const UserServiceException('Profile image upload timed out. Please try again.');
+    } finally {
+      await progressSubscription?.cancel();
     }
   }
 
