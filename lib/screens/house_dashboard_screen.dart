@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../models/house_model.dart';
 import '../models/join_request_model.dart';
 import '../services/house_service.dart';
+import 'analytics_screen.dart';
 import 'chat_screen.dart';
 import 'create_house_screen.dart';
 import 'house_detail_screen.dart';
@@ -803,6 +804,15 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen> {
                               Navigator.of(context).push(
                                 MaterialPageRoute(builder: (_) => HouseDetailScreen(house: house)),
                               );
+                            },
+                          ),
+                          DashboardCard(
+                            icon: Icons.insights_outlined,
+                            title: 'Financial Analytics',
+                            onTap: () {
+                              Navigator.of(
+                                context,
+                              ).push(MaterialPageRoute(builder: (_) => const AnalyticsScreen()));
                             },
                           ),
                           DashboardCard(
