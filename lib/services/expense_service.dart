@@ -456,46 +456,11 @@ class ExpenseService {
       }
     } catch (_) {}
 
-    // After marking as paid, check if all non-owner participants have marked as 'paid'.
-    try {
-      if (creatorId.isNotEmpty) {
-        final participantsSnapshot = await expenseRef
-            .collection('participants')
-            .get()
-            .timeout(_networkTimeout);
-
-        final nonOwnerParticipants = participantsSnapshot.docs
-            .where((doc) => doc.id != creatorId)
-            .toList();
-        final allNonOwnersPaid =
-            nonOwnerParticipants.isNotEmpty &&
-            nonOwnerParticipants.every(
-              (doc) => (doc.data()['status'] as String? ?? 'pending') == 'paid',
-            );
-
-        if (allNonOwnersPaid) {
-          // Notify the creator that all members marked as paid and the bill is ready for owner confirmation.
-          final expenseTitle = (expenseData['title'] as String?) ?? 'a bill';
-          await _db
-              .collection('user_notifications')
-              .doc(creatorId)
-              .collection('notifications')
-              .doc(_notificationDocId(trimmedExpenseId, creatorId, 'owner_confirmation_ready'))
-              .set({
-                'title': 'Bill ready for confirmation',
-                'body': 'All members have paid for $expenseTitle. Please confirm settlement.',
-                'createdAt': FieldValue.serverTimestamp(),
-                'read': false,
-                'type': 'bill_ready_for_owner_confirmation',
-                'houseId': expenseSnapshot.data()?['houseId'] ?? '',
-                'expenseId': trimmedExpenseId,
-                'fromUserId': trimmedUserId,
-                'billTitle': expenseTitle,
-              })
-              .timeout(_networkTimeout);
-        }
-      }
-    } catch (_) {}
+    // Note: the member-side flow intentionally stops here. It must not read
+    // other members' participant documents (privacy boundary enforced by
+    // Firestore rules). The expense creator is notified per payment above and
+    // is responsible for confirming/settling the bill via the existing
+    // leader-only confirmation flows.
   }
 
   Future<void> confirmPayment(String expenseId, String userId) async {

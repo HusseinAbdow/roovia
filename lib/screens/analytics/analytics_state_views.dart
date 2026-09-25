@@ -102,3 +102,72 @@ class AnalyticsEmptyState extends StatelessWidget {
     );
   }
 }
+
+/// Shown when the house HAS financial data but the selected period contains
+/// no bills. Unlike [AnalyticsEmptyState], the period selector stays visible
+/// so the user can switch to a longer period.
+class AnalyticsPeriodEmptyState extends StatelessWidget {
+  const AnalyticsPeriodEmptyState({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 24),
+        child: Column(
+          children: [
+            Icon(
+              Icons.event_busy_rounded,
+              size: 48,
+              color: kAnalyticsDarkGreen.withValues(alpha: 0.4),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'No bills in this period',
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 16,
+                color: kAnalyticsDarkGreen,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Try selecting a longer period to see your house\'s financial activity.',
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Defense-in-depth guard: financial analytics expose individual member
+/// financial data, so only the house leader may use this screen.
+class AnalyticsLeaderOnlyState extends StatelessWidget {
+  const AnalyticsLeaderOnlyState({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.lock_outline_rounded,
+              size: 48,
+              color: kAnalyticsDarkGreen.withValues(alpha: 0.4),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Financial analytics are only available to the house leader.',
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

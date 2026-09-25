@@ -839,7 +839,7 @@ class HouseService {
       },
     );
 
-    return controller.stream;
+    return controller.stream.asBroadcastStream();
   }
 
   Future<void> deleteHouse(String houseId) async {

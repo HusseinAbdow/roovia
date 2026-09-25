@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../models/financial_analytics.dart';
@@ -22,7 +23,7 @@ class AnalyticsScreen extends StatefulWidget {
   State<AnalyticsScreen> createState() => _AnalyticsScreenState();
 }
 
-enum _ScreenStatus { loading, loaded, error, noHouse }
+enum _ScreenStatus { loading, loaded, error, noHouse, notLeader }
 
 class _AnalyticsScreenState extends State<AnalyticsScreen> {
   static const _darkGreen = Color(0xFF0B3D2E);
@@ -48,6 +49,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         setState(() => _status = _ScreenStatus.noHouse);
         return;
       }
+      // Financial analytics expose individual member financial data, so they
+      // are restricted to the house leader even on direct navigation.
+      final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
+      if (house.leaderId != currentUserId) {
+        setState(() => _status = _ScreenStatus.notLeader);
+        return;
+      }
       final snapshot = await _analyticsService.loadFinancialSnapshot(house.houseId);
       if (!mounted) return;
       setState(() {
@@ -68,6 +76,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         _ScreenStatus.loading => const Center(child: CircularProgressIndicator(color: _darkGreen)),
         _ScreenStatus.error => AnalyticsErrorState(onRetry: _loadSnapshot),
         _ScreenStatus.noHouse => AnalyticsNoHouseState(onRetry: _loadSnapshot),
+        _ScreenStatus.notLeader => const AnalyticsLeaderOnlyState(),
         _ScreenStatus.loaded => _buildContent(),
       },
     );
@@ -81,8 +90,26 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       now: DateTime.now(),
     );
 
-    if (analytics.overview.billCount == 0) {
+    if (snapshot.expenses.isEmpty) {
       return const AnalyticsEmptyState();
+    }
+
+    if (analytics.overview.billCount == 0) {
+      // The house has financial data, but none inside the selected period.
+      // Keep the header and period selector visible so the user can switch.
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+        children: [
+          _AnalyticsHeader(houseName: snapshot.house?.name ?? 'Your house'),
+          const SizedBox(height: 16),
+          AnalyticsPeriodSelector(
+            selected: _selectedPeriod,
+            onSelected: (period) => setState(() => _selectedPeriod = period),
+          ),
+          const SizedBox(height: 16),
+          const AnalyticsPeriodEmptyState(),
+        ],
+      );
     }
 
     return RefreshIndicator(

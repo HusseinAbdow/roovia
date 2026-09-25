@@ -701,6 +701,14 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
                                       );
                                     }
 
+                                    // House-wide status counts are only shown to
+                                    // the bill creator; other members can only
+                                    // read their own participant document, so
+                                    // aggregate counts would be misleading.
+                                    if (!isOwner) {
+                                      return const SizedBox.shrink();
+                                    }
+
                                     return Wrap(
                                       spacing: 12,
                                       runSpacing: 8,

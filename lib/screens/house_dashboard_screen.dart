@@ -806,15 +806,16 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen> {
                               );
                             },
                           ),
-                          DashboardCard(
-                            icon: Icons.insights_outlined,
-                            title: 'Financial Analytics',
-                            onTap: () {
-                              Navigator.of(
-                                context,
-                              ).push(MaterialPageRoute(builder: (_) => const AnalyticsScreen()));
-                            },
-                          ),
+                          if (isLeader)
+                            DashboardCard(
+                              icon: Icons.insights_outlined,
+                              title: 'Financial Analytics',
+                              onTap: () {
+                                Navigator.of(
+                                  context,
+                                ).push(MaterialPageRoute(builder: (_) => const AnalyticsScreen()));
+                              },
+                            ),
                           DashboardCard(
                             icon: Icons.location_on_outlined,
                             title: 'Location',

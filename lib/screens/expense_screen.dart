@@ -805,47 +805,91 @@ class _BillCard extends StatelessWidget {
         elevation: 6,
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: FirebaseFirestore.instance
-                .collection('house_expenses')
-                .doc(bill.id)
-                .collection('participants')
-                .snapshots(),
-            builder: (context, participantSnapshot) {
-              final participantDocs = participantSnapshot.data?.docs ?? const [];
-              final participantIds = participantDocs
-                  .map((doc) => (doc.data()['userId'] as String? ?? doc.id).trim())
-                  .where((id) => id.isNotEmpty)
-                  .toList();
+          // Firestore participant rules allow the bill creator (leader) to
+          // read the whole participants collection, while a normal member can
+          // only read their own participant document. Rules are not filters:
+          // an unfiltered collection LIST would be denied for members, so
+          // members stream their own single document instead.
+          child: isCreator
+              ? StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream: FirebaseFirestore.instance
+                      .collection('house_expenses')
+                      .doc(bill.id)
+                      .collection('participants')
+                      .snapshots(),
+                  builder: (context, participantSnapshot) {
+                    final participantDocs =
+                        participantSnapshot.data?.docs ??
+                        const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+                    final participantIds = List<String>.from(
+                      participantDocs
+                          .map((doc) => (doc.data()['userId'] as String? ?? doc.id).trim())
+                          .where((id) => id.isNotEmpty)
+                          .toList(),
+                    );
 
-              String? currentUserStatus;
-              for (final doc in participantDocs) {
-                final data = doc.data();
-                final participantId = (data['userId'] as String? ?? doc.id).trim();
-                if (participantId == currentUserId) {
-                  currentUserStatus = data['status'] as String? ?? 'pending';
-                  break;
-                }
-              }
+                    String? currentUserStatus;
+                    for (final doc in participantDocs) {
+                      final data = doc.data();
+                      final participantId = (data['userId'] as String? ?? doc.id).trim();
+                      if (participantId == currentUserId) {
+                        currentUserStatus = data['status'] as String? ?? 'pending';
+                        break;
+                      }
+                    }
 
-              final paidParticipants = participantDocs.where((doc) {
-                final data = doc.data();
-                return (data['status'] as String? ?? 'pending') == 'paid';
-              }).toList();
+                    final paidParticipants = List<DocumentSnapshot<Map<String, dynamic>>>.from(
+                      participantDocs.where((doc) {
+                        final data = doc.data();
+                        return (data['status'] as String? ?? 'pending') == 'paid';
+                      }),
+                    );
 
-              return _BillCardContent(
-                bill: bill,
-                isCreator: isCreator,
-                currentUserId: currentUserId,
-                currentUserStatus: currentUserStatus,
-                participantDocs: participantDocs,
-                participantIds: participantIds,
-                paidParticipants: paidParticipants,
-                expenseService: expenseService,
-                houseService: houseService,
-              );
-            },
-          ),
+                    return _BillCardContent(
+                      bill: bill,
+                      isCreator: isCreator,
+                      currentUserId: currentUserId,
+                      currentUserStatus: currentUserStatus,
+                      participantDocs: participantDocs,
+                      participantIds: participantIds,
+                      paidParticipants: paidParticipants,
+                      expenseService: expenseService,
+                      houseService: houseService,
+                    );
+                  },
+                )
+              : StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                  stream: FirebaseFirestore.instance
+                      .collection('house_expenses')
+                      .doc(bill.id)
+                      .collection('participants')
+                      .doc(currentUserId)
+                      .snapshots(),
+                  builder: (context, participantSnapshot) {
+                    final ownDoc = participantSnapshot.data;
+                    final participantDocs = ownDoc != null && ownDoc.exists
+                        ? <DocumentSnapshot<Map<String, dynamic>>>[ownDoc]
+                        : const <DocumentSnapshot<Map<String, dynamic>>>[];
+                    final ownData = ownDoc?.data() ?? const <String, dynamic>{};
+                    final currentUserStatus = (ownData['status'] as String?) ?? 'pending';
+                    final participantIds = participantDocs
+                        .map((doc) => (doc.data()?['userId'] as String? ?? doc.id).trim())
+                        .where((id) => id.isNotEmpty)
+                        .toList();
+
+                    return _BillCardContent(
+                      bill: bill,
+                      isCreator: isCreator,
+                      currentUserId: currentUserId,
+                      currentUserStatus: currentUserStatus,
+                      participantDocs: participantDocs,
+                      participantIds: List<String>.from(participantIds),
+                      paidParticipants: const <DocumentSnapshot<Map<String, dynamic>>>[],
+                      expenseService: expenseService,
+                      houseService: houseService,
+                    );
+                  },
+                ),
         ),
       ),
     );
@@ -919,9 +963,9 @@ class _BillCardContent extends StatelessWidget {
   final bool isCreator;
   final String currentUserId;
   final String? currentUserStatus;
-  final List<QueryDocumentSnapshot<Map<String, dynamic>>> participantDocs;
+  final List<DocumentSnapshot<Map<String, dynamic>>> participantDocs;
   final List<String> participantIds;
-  final List<QueryDocumentSnapshot<Map<String, dynamic>>> paidParticipants;
+  final List<DocumentSnapshot<Map<String, dynamic>>> paidParticipants;
   final ExpenseService expenseService;
   final HouseService houseService;
 
@@ -992,13 +1036,13 @@ class _BillCardContent extends StatelessWidget {
       builder: (context, namesSnapshot) {
         // Note: participantNames kept in method signature for potential future use
         final confirmedCount = participantDocs.where((doc) {
-          return (doc.data()['status'] as String? ?? 'pending') == 'confirmed';
+          return (doc.data()?['status'] as String? ?? 'pending') == 'confirmed';
         }).length;
         final paidCount = participantDocs.where((doc) {
-          return (doc.data()['status'] as String? ?? 'pending') == 'paid';
+          return (doc.data()?['status'] as String? ?? 'pending') == 'paid';
         }).length;
         final pendingCount = participantDocs.where((doc) {
-          return (doc.data()['status'] as String? ?? 'pending') == 'pending';
+          return (doc.data()?['status'] as String? ?? 'pending') == 'pending';
         }).length;
 
         return Column(
@@ -1072,79 +1116,121 @@ class _BillCardContent extends StatelessWidget {
               style: Theme.of(context).textTheme.bodyMedium,
             ),
             const SizedBox(height: 12),
-            // Progress bar with status color
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: LinearProgressIndicator(
-                value: participantDocs.isEmpty
-                    ? 0
-                    : (confirmedCount + paidCount) / participantDocs.length,
-                minHeight: 6,
-                backgroundColor: Colors.grey.shade200,
-                valueColor: AlwaysStoppedAnimation<Color>(_statusColor(bill.status, bill.dueDate)),
-              ),
-            ),
-            const SizedBox(height: 12),
-            // Status summary row
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  isCreator
-                      ? 'Paid $paidCount / ${participantDocs.length}'
-                      : 'Your status: ${currentUserStatus?.toUpperCase() ?? "PENDING"}',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700, color: _darkGreen),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: _statusColor(bill.status, bill.dueDate).withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(6),
+            // House-wide payment progress and per-status counts are only shown
+            // to the bill creator; other members can only read their own
+            // participant document, so aggregate counts would be misleading.
+            if (isCreator) ...[
+              // Progress bar with status color
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: LinearProgressIndicator(
+                  value: participantDocs.isEmpty
+                      ? 0
+                      : (confirmedCount + paidCount) / participantDocs.length,
+                  minHeight: 6,
+                  backgroundColor: Colors.grey.shade200,
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    _statusColor(bill.status, bill.dueDate),
                   ),
-                  child: Text(
-                    bill.status == 'confirmed'
-                        ? 'Settled'
-                        : DateTime.now().isAfter(bill.dueDate)
-                        ? 'Overdue'
-                        : bill.status == 'paid'
-                        ? 'Partial'
-                        : 'Pending',
+                ),
+              ),
+              const SizedBox(height: 12),
+              // Status summary row
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Paid $paidCount / ${participantDocs.length}',
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
                       fontWeight: FontWeight.w700,
-                      color: _statusColor(bill.status, bill.dueDate),
+                      color: _darkGreen,
                     ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              children: [
-                _SummaryPill(
-                  icon: Icons.check_circle,
-                  label: 'Confirmed',
-                  value: confirmedCount,
-                  color: Colors.green,
-                ),
-                _SummaryPill(
-                  icon: Icons.hourglass_bottom,
-                  label: 'Paid',
-                  value: paidCount,
-                  color: Colors.blue,
-                ),
-                _SummaryPill(
-                  icon: Icons.circle_outlined,
-                  label: 'Pending',
-                  value: pendingCount,
-                  color: Colors.grey,
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: _statusColor(bill.status, bill.dueDate).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      bill.status == 'confirmed'
+                          ? 'Settled'
+                          : DateTime.now().isAfter(bill.dueDate)
+                          ? 'Overdue'
+                          : bill.status == 'paid'
+                          ? 'Partial'
+                          : 'Pending',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: _statusColor(bill.status, bill.dueDate),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  _SummaryPill(
+                    icon: Icons.check_circle,
+                    label: 'Confirmed',
+                    value: confirmedCount,
+                    color: Colors.green,
+                  ),
+                  _SummaryPill(
+                    icon: Icons.hourglass_bottom,
+                    label: 'Paid',
+                    value: paidCount,
+                    color: Colors.blue,
+                  ),
+                  _SummaryPill(
+                    icon: Icons.circle_outlined,
+                    label: 'Pending',
+                    value: pendingCount,
+                    color: Colors.grey,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+            ] else ...[
+              // Non-creators see only their own payment state, not house-wide
+              // aggregates their participant read permissions would not cover.
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Your status: ${currentUserStatus?.toUpperCase() ?? "PENDING"}',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: _darkGreen,
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: _statusColor(bill.status, bill.dueDate).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      bill.status == 'confirmed'
+                          ? 'Settled'
+                          : DateTime.now().isAfter(bill.dueDate)
+                          ? 'Overdue'
+                          : bill.status == 'paid'
+                          ? 'Partial'
+                          : 'Pending',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: _statusColor(bill.status, bill.dueDate),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+            ],
             if (bill.status == 'confirmed') ...[
               Text(
                 'Confirmed',

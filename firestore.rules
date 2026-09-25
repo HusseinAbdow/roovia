@@ -136,7 +136,13 @@ service cloud.firestore {
           && isHouseLeader(expenseHouseId(expenseId));
 
       match /participants/{userId} {
-        allow read: if signedIn() && expenseExists(expenseId) && (isHouseMember(expenseHouseId(expenseId)) || isHouseLeader(expenseHouseId(expenseId)));
+        // Participant documents contain private financial data (amountOwed,
+        // status, paidAt, confirmedAt, payment proof metadata). Only the house
+        // leader may read all of them; a normal member may read only their own
+        // participant document (document IDs are user IDs).
+        allow read: if signedIn()
+            && expenseExists(expenseId)
+            && (isHouseLeader(expenseHouseId(expenseId)) || request.auth.uid == userId);
 
         allow create: if signedIn()
           && expenseDataAfter(expenseId).houseId is string
