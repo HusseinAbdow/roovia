@@ -75,35 +75,17 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
         .toList();
   }
 
-  Future<String?> _promptRejectionReason(String participantName) async {
-    final controller = TextEditingController();
-
-    final reason = await showDialog<String>(
+  Future<String?> _promptRejectionReason(String participantName) {
+    // The dialog owns its TextEditingController (see _RejectionReasonDialog).
+    // A controller disposed right after showDialog returns would still be
+    // referenced by the dialog's exit animation, throwing
+    // "A TextEditingController was used after being disposed."
+    return showDialog<String>(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Reject payment proof'),
-          content: TextField(
-            controller: controller,
-            maxLines: 3,
-            decoration: InputDecoration(
-              labelText: 'Optional reason',
-              hintText: 'Explain why $participantName needs to resubmit',
-            ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: () => Navigator.of(context).pop(controller.text.trim()),
-              child: const Text('Reject'),
-            ),
-          ],
-        );
+      builder: (dialogContext) {
+        return _RejectionReasonDialog(participantName: participantName);
       },
     );
-
-    controller.dispose();
-    return reason;
   }
 
   Future<void> _confirmMarkAsPaid(
@@ -373,14 +355,17 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
               Expanded(
                 child: OutlinedButton(
                   onPressed: () async {
-                    final messenger = ScaffoldMessenger.of(context);
                     try {
                       await _expenseService.approvePaymentProof(widget.expenseId, participantId);
-                      messenger.showSnackBar(
-                        const SnackBar(content: Text('Payment proof approved')),
-                      );
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(
+                        context,
+                      ).showSnackBar(const SnackBar(content: Text('Payment proof approved')));
                     } catch (error) {
-                      messenger.showSnackBar(SnackBar(content: Text('Error: ${error.toString()}')));
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(
+                        context,
+                      ).showSnackBar(SnackBar(content: Text('Error: ${error.toString()}')));
                     }
                   },
                   child: const Text('Approve'),
@@ -391,8 +376,8 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
                 child: ElevatedButton(
                   style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade700),
                   onPressed: () async {
-                    final messenger = ScaffoldMessenger.of(context);
                     final reason = await _promptRejectionReason(participantName);
+                    if (!mounted) return;
                     if (reason == null) {
                       return;
                     }
@@ -402,11 +387,15 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
                         participantId,
                         reason: reason,
                       );
-                      messenger.showSnackBar(
-                        const SnackBar(content: Text('Payment proof rejected')),
-                      );
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(
+                        context,
+                      ).showSnackBar(const SnackBar(content: Text('Payment proof rejected')));
                     } catch (error) {
-                      messenger.showSnackBar(SnackBar(content: Text('Error: ${error.toString()}')));
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(
+                        context,
+                      ).showSnackBar(SnackBar(content: Text('Error: ${error.toString()}')));
                     }
                   },
                   child: const Text('Reject'),
@@ -768,6 +757,8 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
                               final isSelf = participantId == _uid;
                               final paymentProofNote =
                                   (d['paymentProofNote'] as String?)?.trim() ?? '';
+                              final paymentProofStatus =
+                                  (d['paymentProofStatus'] as String?)?.trim() ?? '';
                               final paymentProofReviewReason =
                                   (d['paymentProofReviewReason'] as String?)?.trim() ?? '';
                               final paymentProofAttachments = _parsePaymentProofs(
@@ -818,10 +809,22 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
                                                 ),
                                                 const SizedBox(height: 4),
                                                 Text('Share: ₺${amount.toStringAsFixed(2)}'),
+                                                if (!isOwner && isSelf && status == 'paid') ...[
+                                                  const SizedBox(height: 4),
+                                                  Text(
+                                                    'Owner has not approved yet',
+                                                    style: Theme.of(context).textTheme.bodySmall
+                                                        ?.copyWith(color: Colors.blue.shade700),
+                                                  ),
+                                                ],
                                               ],
                                             ),
                                           ),
-                                          _StatusBadge(status: status, dueDate: dueDate),
+                                          _StatusBadge(
+                                            status: status,
+                                            dueDate: dueDate,
+                                            isMemberView: !isOwner && isSelf,
+                                          ),
                                         ],
                                       ),
                                       if (isOwner && status == 'paid' && !isSelf) ...[
@@ -836,6 +839,35 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
                                       ],
                                       if (!isOwner && isSelf && status == 'pending') ...[
                                         const SizedBox(height: 12),
+                                        if (paymentProofStatus == 'rejected') ...[
+                                          Text(
+                                            'Previously rejected — please review the reason below.',
+                                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                              color: Colors.red.shade800,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 10),
+                                          if (paymentProofReviewReason.isNotEmpty)
+                                            Container(
+                                              width: double.infinity,
+                                              padding: const EdgeInsets.all(12),
+                                              decoration: BoxDecoration(
+                                                color: Colors.red.shade50,
+                                                borderRadius: BorderRadius.circular(12),
+                                                border: Border.all(color: Colors.red.shade100),
+                                              ),
+                                              child: Text(
+                                                'Rejection reason: $paymentProofReviewReason',
+                                                style: Theme.of(context).textTheme.bodyMedium
+                                                    ?.copyWith(
+                                                      color: Colors.red.shade800,
+                                                      fontWeight: FontWeight.w600,
+                                                    ),
+                                              ),
+                                            ),
+                                          const SizedBox(height: 12),
+                                        ],
                                         if (description.trim().isNotEmpty) ...[
                                           Container(
                                             width: double.infinity,
@@ -906,11 +938,55 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
   }
 }
 
+class _RejectionReasonDialog extends StatefulWidget {
+  final String participantName;
+
+  const _RejectionReasonDialog({required this.participantName});
+
+  @override
+  State<_RejectionReasonDialog> createState() => _RejectionReasonDialogState();
+}
+
+class _RejectionReasonDialogState extends State<_RejectionReasonDialog> {
+  late final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    // Disposed here (after the route is fully unmounted), never while the
+    // dialog's exit animation can still reference the controller.
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Reject payment proof'),
+      content: TextField(
+        controller: _controller,
+        maxLines: 3,
+        decoration: InputDecoration(
+          labelText: 'Optional reason',
+          hintText: 'Explain why ${widget.participantName} needs to resubmit',
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+        ElevatedButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
+          child: const Text('Reject'),
+        ),
+      ],
+    );
+  }
+}
+
 class _StatusBadge extends StatelessWidget {
   final String status;
   final DateTime? dueDate;
+  final bool isMemberView;
 
-  const _StatusBadge({required this.status, this.dueDate});
+  const _StatusBadge({required this.status, this.dueDate, this.isMemberView = false});
 
   Color get _color {
     if (status == 'confirmed') {
@@ -928,7 +1004,7 @@ class _StatusBadge extends StatelessWidget {
 
   String get _label {
     if (status == 'confirmed') return 'Confirmed';
-    if (status == 'paid') return 'Paid';
+    if (status == 'paid') return isMemberView ? 'Awaiting review' : 'Paid';
     if (dueDate != null && DateTime.now().isAfter(dueDate!)) return 'Overdue';
     return 'Pending';
   }

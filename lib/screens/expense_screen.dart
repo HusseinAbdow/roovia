@@ -1201,7 +1201,7 @@ class _BillCardContent extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Your status: ${currentUserStatus?.toUpperCase() ?? "PENDING"}',
+                    'Your status: ${currentUserStatus == 'paid' ? 'AWAITING REVIEW' : (currentUserStatus?.toUpperCase() ?? "PENDING")}',
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
                       fontWeight: FontWeight.w700,
                       color: _darkGreen,

@@ -1,7 +1,7 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../models/payment_proof.dart';
@@ -182,6 +182,13 @@ class _PaymentProofSubmissionSheetState extends State<PaymentProofSubmissionShee
       return;
     }
 
+    if (_attachments.isEmpty) {
+      setState(() {
+        _errorText = 'Please select at least one PDF receipt before submitting.';
+      });
+      return;
+    }
+
     setState(() {
       _submitting = true;
       _uploadProgress = 0;
@@ -275,14 +282,14 @@ class _PaymentProofSubmissionSheetState extends State<PaymentProofSubmissionShee
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Optional attachments',
+                      'Attachments',
                       style: Theme.of(
                         context,
                       ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w800),
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      'Upload PDF receipts or invoices only. PDF files are smaller, easier to review, and safer to archive.',
+                      'Upload PDF receipts or invoices only. Please select at least one PDF before submitting.',
                       style: Theme.of(
                         context,
                       ).textTheme.bodySmall?.copyWith(color: Colors.grey.shade700),
@@ -297,11 +304,12 @@ class _PaymentProofSubmissionSheetState extends State<PaymentProofSubmissionShee
                           icon: const Icon(Icons.picture_as_pdf_outlined),
                           label: const Text('Add PDF'),
                         ),
-                        OutlinedButton.icon(
-                          onPressed: _submitting ? null : _addTestPdf,
-                          icon: const Icon(Icons.science_outlined),
-                          label: const Text('Use Test PDF'),
-                        ),
+                        if (kDebugMode)
+                          OutlinedButton.icon(
+                            onPressed: _submitting ? null : _addTestPdf,
+                            icon: const Icon(Icons.science_outlined),
+                            label: const Text('Use Test PDF'),
+                          ),
                         TextButton.icon(
                           onPressed: _submitting || _attachments.isEmpty
                               ? null
@@ -327,7 +335,7 @@ class _PaymentProofSubmissionSheetState extends State<PaymentProofSubmissionShee
                           border: Border.all(color: Colors.grey.shade300),
                         ),
                         child: Text(
-                          'No files selected yet.',
+                          'No files selected yet. Please add at least one PDF to submit.',
                           style: Theme.of(
                             context,
                           ).textTheme.bodyMedium?.copyWith(color: Colors.grey.shade600),
@@ -397,7 +405,7 @@ class _PaymentProofSubmissionSheetState extends State<PaymentProofSubmissionShee
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: _submitting ? null : _submit,
+                  onPressed: _submitting || _attachments.isEmpty ? null : _submit,
                   child: _submitting
                       ? const SizedBox(
                           width: 18,
