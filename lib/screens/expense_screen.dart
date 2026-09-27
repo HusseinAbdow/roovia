@@ -28,6 +28,15 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
   final ExpenseService _expenseService = ExpenseService();
   final HouseService _houseService = HouseService();
   String _selectedCategory = 'all';
+  int _streamVersion = 0;
+  List<ExpenseModel>? _lastBills;
+
+  void _retryBills() {
+    // Re-subscribe to the existing bills stream (no new service/architecture).
+    setState(() {
+      _streamVersion++;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -58,22 +67,95 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
             // Expenses list
             Expanded(
               child: StreamBuilder<List<ExpenseModel>>(
+                key: ValueKey(_streamVersion),
                 stream: _expenseService.streamExpenses(widget.house.houseId),
                 builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator(color: _darkGreen));
+                  if (snapshot.hasData) {
+                    _lastBills = snapshot.data;
+                  }
+                  final cachedBills = _lastBills;
+                  final bills = snapshot.data ?? cachedBills ?? const <ExpenseModel>[];
+
+                  // Initial load only: a refresh must not hide already-loaded
+                  // content behind a full-screen spinner.
+                  final isInitialLoading =
+                      snapshot.connectionState == ConnectionState.waiting &&
+                      cachedBills == null &&
+                      !snapshot.hasData;
+                  if (isInitialLoading) {
+                    return const Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CircularProgressIndicator(color: _darkGreen),
+                          SizedBox(height: 12),
+                          Text('Loading bills...'),
+                        ],
+                      ),
+                    );
                   }
 
-                  if (snapshot.hasError) {
-                    // Surface the error for debugging (also printed to log)
-                    final err = snapshot.error?.toString() ?? 'Unknown error';
-                    debugPrint('Expense stream error: $err');
-                    return Center(child: Text('Could not load bills: $err'));
+                  if (snapshot.hasError && bills.isEmpty) {
+                    // Friendly message for users; raw error stays in logs.
+                    debugPrint('Expense stream error: ${snapshot.error}');
+                    return Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.error_outline_rounded,
+                              size: 48,
+                              color: _darkGreen.withValues(alpha: 0.5),
+                            ),
+                            const SizedBox(height: 12),
+                            const Text(
+                              'Something went wrong while loading your bills.',
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 16),
+                            ElevatedButton.icon(
+                              onPressed: _retryBills,
+                              icon: const Icon(Icons.refresh_rounded),
+                              label: const Text('Try again'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
                   }
 
-                  final bills = snapshot.data ?? const <ExpenseModel>[];
                   if (bills.isEmpty) {
-                    return const Center(child: Text('No bills yet.'));
+                    return Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.receipt_long_outlined,
+                              size: 48,
+                              color: _darkGreen.withValues(alpha: 0.4),
+                            ),
+                            const SizedBox(height: 12),
+                            const Text(
+                              'No bills yet',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 16,
+                                color: _darkGreen,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Bills will appear here when they are requested.',
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
                   }
 
                   final categories = <String>{'all', ...bills.map((bill) => bill.category)};
@@ -101,8 +183,44 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                     (total, bill) => total + sanitizeMoneyAmount(bill.perPersonAmount),
                   );
 
+                  if (snapshot.hasError) {
+                    debugPrint('Expense stream refresh error: ${snapshot.error}');
+                  }
+
                   return ListView(
                     children: [
+                      // Refresh failed but previously loaded bills are still
+                      // shown; offer a lightweight inline retry instead of
+                      // replacing the whole screen with an error.
+                      if (snapshot.hasError) ...[
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.error_outline_rounded,
+                                size: 20,
+                                color: Colors.red.shade700,
+                              ),
+                              const SizedBox(width: 8),
+                              const Expanded(
+                                child: Text(
+                                  'Something went wrong while refreshing your bills.',
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: _retryBills,
+                                child: const Text('Try again'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                       Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
