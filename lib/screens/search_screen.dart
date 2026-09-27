@@ -30,6 +30,7 @@ class _SearchScreenState extends State<SearchScreen> {
   Timer? _searchDebounce;
   List<House> _results = const [];
   bool _isSearching = false;
+  bool _searchFailed = false;
   bool _isJoiningByCode = false;
   final Set<String> _joiningHouseIds = <String>{};
   final Set<String> _openingHouseIds = <String>{};
@@ -64,6 +65,7 @@ class _SearchScreenState extends State<SearchScreen> {
     if (mounted) {
       setState(() {
         _isSearching = true;
+        _searchFailed = false;
         _searchQuery = normalizedQuery;
       });
     }
@@ -80,15 +82,19 @@ class _SearchScreenState extends State<SearchScreen> {
 
       setState(() {
         _results = houses;
+        _searchFailed = false;
       });
     } catch (e) {
       if (!mounted) {
         return;
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Search failed: $e')));
+      // Friendly inline error; raw exception stays in logs only.
+      // Previously loaded results are kept so a failed refresh never
+      // looks like "No houses found."
+      debugPrint('Search failed: $e');
       setState(() {
-        _results = const [];
+        _searchFailed = true;
       });
     } finally {
       if (mounted) {
@@ -119,9 +125,10 @@ class _SearchScreenState extends State<SearchScreen> {
       if (!mounted) {
         return;
       }
+      debugPrint('Could not open house: $e');
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Could not open house: $e')));
+      ).showSnackBar(const SnackBar(content: Text('Could not open this house right now.')));
     } finally {
       if (mounted) {
         setState(() => _openingHouseIds.remove(house.houseId));
@@ -156,9 +163,10 @@ class _SearchScreenState extends State<SearchScreen> {
         return;
       }
 
-      final message = (e is StateError ? e.message : e).toString();
-
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      debugPrint('Join request failed: $e');
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Could not send the join request right now.')));
     } finally {
       if (mounted) {
         setState(() => _joiningHouseIds.remove(house.houseId));
@@ -202,8 +210,10 @@ class _SearchScreenState extends State<SearchScreen> {
         return;
       }
 
-      final message = (e is StateError ? e.message : e).toString();
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      debugPrint('Join with code failed: $e');
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Could not join this house right now.')));
     } finally {
       if (mounted) {
         setState(() => _isJoiningByCode = false);
@@ -532,12 +542,101 @@ class _SearchScreenState extends State<SearchScreen> {
       color: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Text(
-          hasFilters ? 'No houses found for current filters.' : 'No houses found.',
-          style: Theme.of(
-            context,
-          ).textTheme.bodyLarge?.copyWith(color: _darkGreen.withValues(alpha: 0.75)),
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.search_off_rounded,
+              size: 48,
+              color: _darkGreen.withValues(alpha: 0.4),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              hasFilters ? 'No houses found for current filters.' : 'No houses found.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 16,
+                color: _darkGreen,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              hasFilters
+                  ? 'Try adjusting your search or filters.'
+                  : 'Discoverable houses will appear here.',
+              textAlign: TextAlign.center,
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: _darkGreen.withValues(alpha: 0.75)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Full error state shown only when a search failed and there are no
+  /// previously loaded results to keep visible.
+  Widget _buildSearchErrorCard() {
+    return Card(
+      elevation: 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.error_outline_rounded,
+              size: 48,
+              color: _darkGreen.withValues(alpha: 0.5),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Could not search houses right now.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: _darkGreen),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Check your connection and try again.',
+              textAlign: TextAlign.center,
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: _darkGreen.withValues(alpha: 0.75)),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: _runSearch,
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Try again'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Inline banner shown above still-visible results when a refresh fails.
+  Widget _buildSearchErrorBanner() {
+    return Card(
+      elevation: 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            Icon(Icons.error_outline_rounded, size: 20, color: Colors.red.shade700),
+            const SizedBox(width: 8),
+            const Expanded(
+              child: Text('Could not search houses right now.'),
+            ),
+            TextButton(onPressed: _runSearch, child: const Text('Try again')),
+          ],
         ),
       ),
     );
@@ -545,7 +644,14 @@ class _SearchScreenState extends State<SearchScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final hasNoResults = !_isSearching && _results.isEmpty;
+    // A: currently searching -> _isSearching
+    // B: success with zero results -> !_searchFailed && _results.isEmpty
+    // C: failed -> _searchFailed (results kept; never shown as "No houses found.")
+    // D: success with results -> !_searchFailed && _results.isNotEmpty
+    final showSearchError = !_isSearching && _searchFailed;
+    final showInlineError = showSearchError && _results.isNotEmpty;
+    final showFullError = showSearchError && _results.isEmpty;
+    final hasNoResults = !_isSearching && !_searchFailed && _results.isEmpty;
     final currentUserId = _auth.currentUser?.uid;
 
     return Scaffold(
@@ -565,6 +671,11 @@ class _SearchScreenState extends State<SearchScreen> {
                             padding: EdgeInsets.symmetric(vertical: 16),
                             child: Center(child: CircularProgressIndicator(color: _darkGreen)),
                           ),
+                        if (showInlineError) ...[
+                          _buildSearchErrorBanner(),
+                          const SizedBox(height: 8),
+                        ],
+                        if (showFullError) _buildSearchErrorCard(),
                         if (hasNoResults) _buildNoResultsCard(),
                         ..._results.map((house) => _buildResultCard(house)),
                         const SizedBox(height: 8),
@@ -588,6 +699,11 @@ class _SearchScreenState extends State<SearchScreen> {
                                 padding: EdgeInsets.symmetric(vertical: 16),
                                 child: Center(child: CircularProgressIndicator(color: _darkGreen)),
                               ),
+                            if (showInlineError) ...[
+                              _buildSearchErrorBanner(),
+                              const SizedBox(height: 8),
+                            ],
+                            if (showFullError) _buildSearchErrorCard(),
                             if (hasNoResults) _buildNoResultsCard(),
                             ..._results.map(
                               (house) => _buildResultCard(
