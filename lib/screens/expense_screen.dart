@@ -7,6 +7,7 @@ import '../models/expense_model.dart';
 import '../models/house_model.dart';
 import '../services/expense_service.dart';
 import '../services/house_service.dart';
+import '../utils/money_format.dart';
 import 'expense_detail_screen.dart';
 
 class ExpenseScreen extends StatefulWidget {
@@ -27,13 +28,6 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
   final ExpenseService _expenseService = ExpenseService();
   final HouseService _houseService = HouseService();
   String _selectedCategory = 'all';
-
-  String _formatMoneyCompact(double amount) {
-    if (amount >= 1000) {
-      return '₺${(amount / 1000).toStringAsFixed(1)}k';
-    }
-    return '₺${amount.toStringAsFixed(0)}';
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -87,14 +81,24 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                       ? bills
                       : bills.where((bill) => bill.category == _selectedCategory).toList();
 
-                  final activeCount = bills.where((bill) => bill.status != 'confirmed').length;
-                  final totalRequested = bills.fold<double>(
+                  final activeCount = visibleBills
+                      .where((bill) => bill.status != 'confirmed')
+                      .length;
+                  // Header totals reflect the currently visible (filter-selected)
+                  // bills so the summary always matches the list below.
+                  final totalRequested = visibleBills.fold<double>(
                     0,
-                    (total, bill) => total + bill.totalAmount,
+                    (total, bill) => total + sanitizeMoneyAmount(bill.totalAmount),
                   );
-                  final yourEstimatedShare = bills.fold<double>(
+                  // ExpenseModel only carries the bill-level perPersonAmount;
+                  // this screen has no per-user participant amounts at the
+                  // header level (non-creators may only read their own
+                  // participant doc, see Firestore rules), so this must stay
+                  // an average/per-person estimate and must not be presented
+                  // as the viewer's personal share.
+                  final averageShare = visibleBills.fold<double>(
                     0,
-                    (total, bill) => total + bill.perPersonAmount,
+                    (total, bill) => total + sanitizeMoneyAmount(bill.perPersonAmount),
                   );
 
                   return ListView(
@@ -121,13 +125,13 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                               children: [
                                 _MetricBubble(
                                   label: 'Requested',
-                                  value: _formatMoneyCompact(totalRequested),
+                                  value: formatLira(totalRequested),
                                   color: _softBlue,
                                   icon: Icons.receipt_long_rounded,
                                 ),
                                 _MetricBubble(
-                                  label: 'Your Share',
-                                  value: _formatMoneyCompact(yourEstimatedShare),
+                                  label: 'Average Share',
+                                  value: formatLira(averageShare),
                                   color: _softGreen,
                                   icon: Icons.account_balance_wallet_rounded,
                                 ),
@@ -168,6 +172,13 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                         ),
                       ),
                       const SizedBox(height: 16),
+                      if (visibleBills.isEmpty)
+                        const Center(
+                          child: Padding(
+                            padding: EdgeInsets.symmetric(vertical: 24),
+                            child: Text('No bills in this filter.'),
+                          ),
+                        ),
                       ...visibleBills.map((bill) {
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 12),
@@ -264,7 +275,7 @@ class _CreateBillScreenState extends State<CreateBillScreen> {
     return parsed;
   }
 
-  String _formatMoney(double value) => '₺${value.toStringAsFixed(2)}';
+  String _formatMoney(double? value) => formatLira(value);
 
   String _formatDate(DateTime date) {
     return '${date.day.toString().padLeft(2, '0')}/'
@@ -1081,7 +1092,7 @@ class _BillCardContent extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  '₺${bill.totalAmount.toStringAsFixed(2)}',
+                  formatLira(bill.totalAmount),
                   style: Theme.of(
                     context,
                   ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
@@ -1112,7 +1123,7 @@ class _BillCardContent extends StatelessWidget {
               const SizedBox(height: 8),
             ],
             Text(
-              '₺${bill.perPersonAmount.toStringAsFixed(2)} per person',
+              '${formatLira(bill.perPersonAmount)} per person',
               style: Theme.of(context).textTheme.bodyMedium,
             ),
             const SizedBox(height: 12),
@@ -1302,25 +1313,39 @@ class _MetricBubble extends StatelessWidget {
       width: 104,
       height: 104,
       decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, size: 18, color: const Color(0xFF0B3D2E)),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF0B3D2E)),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF0B3D2E),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 18, color: const Color(0xFF0B3D2E)),
+            const SizedBox(height: 4),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                value,
+                maxLines: 1,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF0B3D2E),
+                ),
+              ),
             ),
-          ),
-        ],
+            const SizedBox(height: 2),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF0B3D2E),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
