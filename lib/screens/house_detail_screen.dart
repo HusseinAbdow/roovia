@@ -85,7 +85,7 @@ class _HouseDetailScreenState extends State<HouseDetailScreen> {
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Request sent! Waiting for house owner approval.')),
+        const SnackBar(content: Text('Request sent! Waiting for owner approval.')),
       );
     } catch (e) {
       if (!mounted) {

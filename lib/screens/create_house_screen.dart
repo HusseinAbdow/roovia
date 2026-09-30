@@ -238,7 +238,7 @@ class _CreateHouseScreenState extends State<CreateHouseScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Start your shared home space and become the first member and leader.',
+                        'Start your shared home space and become the first member and owner.',
                         style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                           color: _darkGreen.withValues(alpha: 0.75),
                           height: 1.45,
@@ -427,7 +427,7 @@ class _CreateHouseScreenState extends State<CreateHouseScreen> {
                             const SizedBox(width: 12),
                             Expanded(
                               child: Text(
-                                'Your house will be saved in Firestore with you as leader. Address is private to members only.',
+                                'Your house will be saved in Firestore with you as owner. Address is private to members only.',
                                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                                   color: _darkGreen.withValues(alpha: 0.8),
                                   fontWeight: FontWeight.w500,

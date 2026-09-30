@@ -34,7 +34,7 @@ void main() {
       await tester.pumpWidget(wrap(const AnalyticsLeaderOnlyState()));
 
       expect(
-        find.text('Financial analytics are only available to the house leader.'),
+        find.text('Financial analytics are only available to the owner.'),
         findsOneWidget,
       );
     });

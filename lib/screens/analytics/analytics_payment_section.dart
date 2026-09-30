@@ -30,7 +30,7 @@ class AnalyticsPaymentSection extends StatelessWidget {
         ),
         _PaymentStateRow(
           label: 'Confirmed',
-          detail: 'Approved by house owner',
+          detail: 'Approved by owner',
           amount: statistics.confirmedAmount,
           count: statistics.confirmedCount,
           color: Colors.green.shade600,

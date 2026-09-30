@@ -162,7 +162,7 @@ class AnalyticsLeaderOnlyState extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             const Text(
-              'Financial analytics are only available to the house leader.',
+              'Financial analytics are only available to the owner.',
               textAlign: TextAlign.center,
             ),
           ],

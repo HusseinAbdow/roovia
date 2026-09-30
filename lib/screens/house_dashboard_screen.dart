@@ -240,7 +240,7 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen> {
 
     if (house.leaderId != currentUserId) {
       messenger.showSnackBar(
-        const SnackBar(content: Text('Only the house owner can update monthly costs.')),
+        const SnackBar(content: Text('Only the owner can update monthly costs.')),
       );
       return;
     }

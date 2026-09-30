@@ -368,7 +368,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       builder: (context, namesSnapshot) {
         final leaderName =
             (namesSnapshot.data ?? const <String, String>{})[currentHouse.leaderId] ??
-            'House owner';
+            'Owner';
 
         return Container(
           padding: const EdgeInsets.all(22),
@@ -404,7 +404,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Leader: $leaderName',
+                          'Owner: $leaderName',
                           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                             color: _darkGreen.withValues(alpha: 0.72),
                           ),
