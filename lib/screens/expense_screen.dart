@@ -1269,7 +1269,7 @@ class _BillCardContent extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Paid $paidCount / ${participantDocs.length}',
+                    'Awaiting review $paidCount / ${participantDocs.length}',
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
                       fontWeight: FontWeight.w700,
                       color: _darkGreen,
@@ -1310,7 +1310,7 @@ class _BillCardContent extends StatelessWidget {
                   ),
                   _SummaryPill(
                     icon: Icons.hourglass_bottom,
-                    label: 'Paid',
+                    label: 'Awaiting review',
                     value: paidCount,
                     color: Colors.blue,
                   ),
@@ -1362,7 +1362,7 @@ class _BillCardContent extends StatelessWidget {
             ],
             if (bill.status == 'confirmed') ...[
               Text(
-                'Confirmed',
+                'Settled',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: Colors.green.shade700,
                   fontWeight: FontWeight.w600,

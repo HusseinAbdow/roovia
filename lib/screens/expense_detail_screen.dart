@@ -569,7 +569,7 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
                                           Text(
-                                            'Paid $paidOrConfirmed / $totalParticipants',
+                                            'Settled $paidOrConfirmed / $totalParticipants',
                                             style: const TextStyle(fontWeight: FontWeight.w700),
                                           ),
                                           const SizedBox(height: 8),
@@ -710,7 +710,7 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
                                         ),
                                         _SummaryPill(
                                           icon: Icons.hourglass_bottom,
-                                          label: 'Paid',
+                                          label: 'Awaiting review',
                                           value: paidCount,
                                           color: Colors.blue,
                                         ),
@@ -1004,7 +1004,9 @@ class _StatusBadge extends StatelessWidget {
 
   String get _label {
     if (status == 'confirmed') return 'Confirmed';
-    if (status == 'paid') return isMemberView ? 'Awaiting review' : 'Paid';
+    // Participant-level 'paid' means proof submitted but not yet approved
+    // by the owner, so it reads 'Awaiting review' in every view.
+    if (status == 'paid') return 'Awaiting review';
     if (dueDate != null && DateTime.now().isAfter(dueDate!)) return 'Overdue';
     return 'Pending';
   }

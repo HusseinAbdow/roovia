@@ -21,7 +21,7 @@ class AnalyticsPaymentSection extends StatelessWidget {
           icon: Icons.circle_outlined,
         ),
         _PaymentStateRow(
-          label: 'Paid',
+          label: 'Awaiting review',
           detail: 'Marked paid, awaiting approval',
           amount: statistics.markedPaidAmount,
           count: statistics.markedPaidCount,

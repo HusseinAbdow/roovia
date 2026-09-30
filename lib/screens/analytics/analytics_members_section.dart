@@ -73,7 +73,7 @@ class AnalyticsMembersSection extends StatelessWidget {
                   runSpacing: 6,
                   children: [
                     _MiniPill(
-                      label: 'Paid ${formatMoney(contribution.markedPaidAmount)}',
+                      label: 'Awaiting review ${formatMoney(contribution.markedPaidAmount)}',
                       color: Colors.blue.shade600,
                     ),
                     _MiniPill(
