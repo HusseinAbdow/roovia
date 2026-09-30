@@ -10,7 +10,7 @@ import '../services/house_service.dart';
 import 'analytics_screen.dart';
 import 'chat_screen.dart';
 import 'create_house_screen.dart';
-import 'house_detail_screen.dart';
+import 'expense_screen.dart';
 import 'user_profile_screen.dart';
 
 class HouseDashboardScreen extends StatefulWidget {
@@ -799,10 +799,10 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen> {
                           ),
                           DashboardCard(
                             icon: Icons.payments_outlined,
-                            title: 'Expenses',
+                            title: 'Bills',
                             onTap: () {
                               Navigator.of(context).push(
-                                MaterialPageRoute(builder: (_) => HouseDetailScreen(house: house)),
+                                MaterialPageRoute(builder: (_) => ExpenseScreen(house: house)),
                               );
                             },
                           ),
