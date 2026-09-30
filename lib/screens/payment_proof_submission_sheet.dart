@@ -221,10 +221,11 @@ class _PaymentProofSubmissionSheetState extends State<PaymentProofSubmissionShee
       }
       final raw = error.toString();
       final normalized = raw.toLowerCase();
+      debugPrint('Payment proof submit failed: $raw');
       final displayMessage =
           normalized.contains('permission-denied') || normalized.contains('unauthorized')
           ? 'Upload is blocked by Storage rules for this user/action. Please verify the latest storage rules are deployed.'
-          : raw;
+          : 'Could not submit your payment proof. Please try again.';
       setState(() {
         _errorText = displayMessage;
         _submitting = false;

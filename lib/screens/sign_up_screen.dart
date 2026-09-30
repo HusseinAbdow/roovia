@@ -116,9 +116,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
       setState(() => _loading = false);
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(e.toString())));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to create account right now. Please try again.')),
+      );
     } finally {
       if (mounted && _loading) {
         setState(() => _loading = false);

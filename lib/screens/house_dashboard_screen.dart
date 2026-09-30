@@ -205,7 +205,14 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen> {
         return;
       }
 
-      final message = (e is StateError ? e.message : e).toString();
+      // Curated service messages stay as-is; anything else gets a friendly
+      // fallback with the raw error in logs.
+      final message = e is StateError
+          ? e.message
+          : 'Could not update this request. Please try again.';
+      if (e is! StateError) {
+        debugPrint('Respond to join request failed: $e');
+      }
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
     } finally {
       if (mounted) {
@@ -438,7 +445,15 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen> {
                                     }
 
                                     setSheetState(() => saving = false);
-                                    final message = (e is StateError ? e.message : e).toString();
+                                    // Curated service messages stay as-is; anything
+                                    // else gets a friendly fallback with the raw
+                                    // error in logs.
+                                    final message = e is StateError
+                                        ? e.message
+                                        : 'Could not save monthly costs. Please try again.';
+                                    if (e is! StateError) {
+                                      debugPrint('Update monthly costs failed: $e');
+                                    }
                                     messenger.showSnackBar(SnackBar(content: Text(message)));
                                   }
                                 },

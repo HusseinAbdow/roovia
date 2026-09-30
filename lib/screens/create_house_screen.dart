@@ -167,9 +167,9 @@ class _CreateHouseScreenState extends State<CreateHouseScreen> {
 
       setState(() => _loading = false);
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Could not create house: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not create your house. Please try again.')),
+      );
     } finally {
       if (mounted && _loading) {
         setState(() => _loading = false);

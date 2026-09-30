@@ -94,7 +94,10 @@ class _HouseDetailScreenState extends State<HouseDetailScreen> {
 
       setState(() => _isRequesting = false);
 
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to request: $e')));
+      debugPrint('Join request failed: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not send your request. Please try again.')),
+      );
     }
   }
 

@@ -21,7 +21,7 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   static const _darkGreen = Color(0xFF0B3D2E);
   static const _emptyStateMessage = 'No messages yet. Start the conversation.';
-  static const _loadErrorMessage = 'Failed to load messages. Please try again.';
+  static const _loadErrorMessage = 'Couldn\'t load your messages. Please try again.';
 
   final ChatService _chatService = ChatService();
   final HouseService _houseService = HouseService();
@@ -120,9 +120,10 @@ class _ChatScreenState extends State<ChatScreen> {
         return;
       }
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Failed to send message: $e')));
+      debugPrint('Failed to send message: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Couldn\'t send your message. Please try again.')),
+      );
     } finally {
       if (mounted) {
         setState(() => _isSending = false);
@@ -177,7 +178,14 @@ class _ChatScreenState extends State<ChatScreen> {
       if (!mounted) {
         return;
       }
-      final message = e is StateError ? e.message : e.toString();
+      // Curated service messages (e.g. permission limits) stay as-is;
+      // anything else gets a friendly fallback with the raw error in logs.
+      final message = e is StateError
+          ? e.message
+          : 'Couldn\'t update the chat name. Please try again.';
+      if (e is! StateError) {
+        debugPrint('Rename chat failed: $e');
+      }
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
     }
   }

@@ -82,7 +82,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(e.toString())));
+      ).showSnackBar(const SnackBar(content: Text('Unable to sign in right now. Please try again.')));
     } finally {
       if (mounted && _loading) {
         setState(() => _loading = false);

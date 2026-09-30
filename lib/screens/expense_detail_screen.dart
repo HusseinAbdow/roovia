@@ -165,12 +165,13 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
                 child: Image.network(
                   attachment.downloadUrl,
                   fit: BoxFit.contain,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Text('Could not load image: $error'),
-                    );
-                  },
+                   errorBuilder: (context, error, stackTrace) {
+                     debugPrint('Proof image failed to load: $error');
+                     return const Padding(
+                       padding: EdgeInsets.all(24),
+                       child: Text('Could not load this image.'),
+                     );
+                   },
                 ),
               ),
             ],
@@ -363,9 +364,12 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
                       ).showSnackBar(const SnackBar(content: Text('Payment proof approved')));
                     } catch (error) {
                       if (!mounted) return;
-                      ScaffoldMessenger.of(
-                        context,
-                      ).showSnackBar(SnackBar(content: Text('Error: ${error.toString()}')));
+                      debugPrint('Approve payment proof failed: $error');
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Could not approve this payment. Please try again.'),
+                        ),
+                      );
                     }
                   },
                   child: const Text('Approve'),
@@ -393,9 +397,12 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
                       ).showSnackBar(const SnackBar(content: Text('Payment proof rejected')));
                     } catch (error) {
                       if (!mounted) return;
-                      ScaffoldMessenger.of(
-                        context,
-                      ).showSnackBar(SnackBar(content: Text('Error: ${error.toString()}')));
+                      debugPrint('Reject payment proof failed: $error');
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Could not reject this payment. Please try again.'),
+                        ),
+                      );
                     }
                   },
                   child: const Text('Reject'),
@@ -615,9 +622,14 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
                                                           ),
                                                         );
                                                       } catch (e) {
+                                                        debugPrint(
+                                                          'Confirm settlement failed: $e',
+                                                        );
                                                         scaffoldMessenger.showSnackBar(
-                                                          SnackBar(
-                                                            content: Text('Error: ${e.toString()}'),
+                                                          const SnackBar(
+                                                            content: Text(
+                                                              'Could not confirm payments. Please try again.',
+                                                            ),
                                                           ),
                                                         );
                                                       }
