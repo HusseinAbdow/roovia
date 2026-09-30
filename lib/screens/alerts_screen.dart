@@ -12,10 +12,22 @@ class AlertsScreen extends StatefulWidget {
 }
 
 class _AlertsScreenState extends State<AlertsScreen> {
+  static const _darkGreen = Color(0xFF0B3D2E);
+
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
+  int _streamVersion = 0;
+  List<QueryDocumentSnapshot<Map<String, dynamic>>>? _lastDocs;
+
   String get _currentUserId => _auth.currentUser?.uid ?? '';
+
+  void _retryAlerts() {
+    // Re-subscribe to the existing alerts stream (no new service/architecture).
+    setState(() {
+      _streamVersion++;
+    });
+  }
 
   /// Mark a single notification as read when tapped
   Future<void> _markAsRead(String docId) async {
@@ -84,26 +96,145 @@ class _AlertsScreenState extends State<AlertsScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Alerts')),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        key: ValueKey(_streamVersion),
         stream: col.snapshots(),
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
+          if (snapshot.hasData) {
+            _lastDocs = snapshot.data?.docs;
           }
-          if (snapshot.hasError) {
-            return const Center(child: Text('Could not load alerts.'));
+          final cachedDocs = _lastDocs;
+          final docs = snapshot.data?.docs ?? cachedDocs ?? const [];
+
+          // Initial load only: a refresh must not hide already-loaded
+          // alerts behind a full-screen spinner.
+          final isInitialLoading =
+              snapshot.connectionState == ConnectionState.waiting &&
+              cachedDocs == null &&
+              !snapshot.hasData;
+          if (isInitialLoading) {
+            return const Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(color: _darkGreen),
+                  SizedBox(height: 12),
+                  Text('Loading alerts...'),
+                ],
+              ),
+            );
           }
 
-          final docs = snapshot.data?.docs ?? const [];
+          if (snapshot.hasError && docs.isEmpty) {
+            // Friendly message for users; raw error stays in logs.
+            debugPrint('Alerts stream error: ${snapshot.error}');
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.error_outline_rounded,
+                      size: 48,
+                      color: _darkGreen.withValues(alpha: 0.5),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Could not load alerts right now.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                        color: _darkGreen,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Check your connection and try again.',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodyMedium?.copyWith(color: _darkGreen.withValues(alpha: 0.75)),
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton.icon(
+                      onPressed: _retryAlerts,
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text('Try again'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+
           if (docs.isEmpty) {
-            return const Center(child: Text('No alerts.'));
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.notifications_none_rounded,
+                      size: 48,
+                      color: _darkGreen.withValues(alpha: 0.4),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'No alerts yet',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                        color: _darkGreen,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Payment reminders and house updates will appear here.',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodyMedium?.copyWith(color: _darkGreen.withValues(alpha: 0.75)),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+
+          if (snapshot.hasError) {
+            debugPrint('Alerts stream refresh error: ${snapshot.error}');
           }
 
           return ListView.separated(
             padding: const EdgeInsets.all(16),
-            itemCount: docs.length,
+            itemCount: docs.length + (snapshot.hasError ? 1 : 0),
             separatorBuilder: (context, _) => const SizedBox(height: 12),
             itemBuilder: (context, index) {
-              final doc = docs[index];
+              // Refresh failed but previously loaded alerts stay visible;
+              // offer a lightweight inline retry instead of replacing the
+              // whole list with an error.
+              if (snapshot.hasError && index == 0) {
+                return Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.error_outline_rounded, size: 20, color: Colors.red.shade700),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text('Something went wrong while refreshing your alerts.'),
+                      ),
+                      TextButton(onPressed: _retryAlerts, child: const Text('Try again')),
+                    ],
+                  ),
+                );
+              }
+              final doc = docs[snapshot.hasError ? index - 1 : index];
               final data = doc.data();
               final docId = doc.id;
               final read = data['read'] as bool? ?? false;
