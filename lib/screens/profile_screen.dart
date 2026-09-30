@@ -340,7 +340,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return const Center(
         child: Padding(
           padding: EdgeInsets.symmetric(vertical: 24),
-          child: CircularProgressIndicator(color: _darkGreen),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(color: _darkGreen),
+              SizedBox(height: 12),
+              Text('Loading house...'),
+            ],
+          ),
         ),
       );
     }

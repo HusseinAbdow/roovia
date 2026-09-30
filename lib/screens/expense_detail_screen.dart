@@ -425,7 +425,16 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
         stream: col.snapshots(),
         builder: (context, snap) {
           if (snap.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
+            return const Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 12),
+                  Text('Loading bill...'),
+                ],
+              ),
+            );
           }
           if (!snap.hasData || !snap.data!.exists) {
             return const Center(child: Text('Expense not found'));

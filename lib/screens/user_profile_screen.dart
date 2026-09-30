@@ -52,7 +52,16 @@ class UserProfileScreen extends StatelessWidget {
         stream: FirebaseFirestore.instance.collection('users').doc(userId).snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator(color: _darkGreen));
+            return const Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(color: _darkGreen),
+                  SizedBox(height: 12),
+                  Text('Loading profile...'),
+                ],
+              ),
+            );
           }
 
           if (snapshot.hasError) {

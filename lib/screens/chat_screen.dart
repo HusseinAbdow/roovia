@@ -215,7 +215,16 @@ class _ChatScreenState extends State<ChatScreen> {
         if (houseSnapshot.connectionState == ConnectionState.waiting) {
           return Scaffold(
             appBar: AppBar(title: const Text('House Chat')),
-            body: const Center(child: CircularProgressIndicator(color: _darkGreen)),
+            body: const Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(color: _darkGreen),
+                  SizedBox(height: 12),
+                  Text('Loading chat...'),
+                ],
+              ),
+            ),
           );
         }
 
@@ -268,7 +277,16 @@ class _ChatScreenState extends State<ChatScreen> {
                       }
 
                       if (snapshot.connectionState == ConnectionState.waiting) {
-                        return const Center(child: CircularProgressIndicator(color: _darkGreen));
+                        return const Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              CircularProgressIndicator(color: _darkGreen),
+                              SizedBox(height: 12),
+                              Text('Loading messages...'),
+                            ],
+                          ),
+                        );
                       }
 
                       if (snapshot.hasError) {

@@ -878,7 +878,16 @@ class _HouseDashboardScreenState extends State<HouseDashboardScreen> {
         final requests = snapshot.data ?? const <JoinRequest>[];
 
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator(color: _darkGreen));
+          return const Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(color: _darkGreen),
+                SizedBox(height: 12),
+                Text('Loading requests...'),
+              ],
+            ),
+          );
         }
 
         if (snapshot.hasError) {
