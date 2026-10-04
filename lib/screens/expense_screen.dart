@@ -979,6 +979,8 @@ class _BillCard extends StatelessWidget {
                       isCreator: isCreator,
                       currentUserId: currentUserId,
                       currentUserStatus: currentUserStatus,
+                      isParticipantLoading: false,
+                      hasOwnParticipantRecord: true,
                       participantDocs: participantDocs,
                       participantIds: participantIds,
                       paidParticipants: paidParticipants,
@@ -1011,6 +1013,10 @@ class _BillCard extends StatelessWidget {
                       isCreator: isCreator,
                       currentUserId: currentUserId,
                       currentUserStatus: currentUserStatus,
+                      isParticipantLoading:
+                          participantSnapshot.connectionState == ConnectionState.waiting &&
+                          ownDoc == null,
+                      hasOwnParticipantRecord: ownDoc != null && ownDoc.exists,
                       participantDocs: participantDocs,
                       participantIds: List<String>.from(participantIds),
                       paidParticipants: const <DocumentSnapshot<Map<String, dynamic>>>[],
@@ -1092,6 +1098,12 @@ class _BillCardContent extends StatelessWidget {
   final bool isCreator;
   final String currentUserId;
   final String? currentUserStatus;
+  // Member privacy: non-creators stream only their own participant document.
+  // hasOwnParticipantRecord is false when the viewer was not listed on the
+  // bill (they owe nothing, so no personal status is shown); loading covers
+  // the initial stream wait so a status is never guessed from no data.
+  final bool isParticipantLoading;
+  final bool hasOwnParticipantRecord;
   final List<DocumentSnapshot<Map<String, dynamic>>> participantDocs;
   final List<String> participantIds;
   final List<DocumentSnapshot<Map<String, dynamic>>> paidParticipants;
@@ -1103,6 +1115,8 @@ class _BillCardContent extends StatelessWidget {
     required this.isCreator,
     required this.currentUserId,
     required this.currentUserStatus,
+    required this.isParticipantLoading,
+    required this.hasOwnParticipantRecord,
     required this.participantDocs,
     required this.participantIds,
     required this.paidParticipants,
@@ -1326,11 +1340,17 @@ class _BillCardContent extends StatelessWidget {
             ] else ...[
               // Non-creators see only their own payment state, not house-wide
               // aggregates their participant read permissions would not cover.
+              // Viewers who were not listed on the bill have no participant
+              // record and owe nothing, so no personal status is implied.
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Your status: ${currentUserStatus == 'paid' ? 'AWAITING REVIEW' : (currentUserStatus?.toUpperCase() ?? "PENDING")}',
+                    isParticipantLoading
+                        ? 'Loading your status...'
+                        : hasOwnParticipantRecord
+                        ? 'Your status: ${currentUserStatus == 'paid' ? 'AWAITING REVIEW' : (currentUserStatus?.toUpperCase() ?? "PENDING")}'
+                        : 'Not part of this bill',
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
                       fontWeight: FontWeight.w700,
                       color: _darkGreen,

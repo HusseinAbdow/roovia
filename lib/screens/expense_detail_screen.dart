@@ -455,13 +455,29 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
           final createdBy = data['createdBy'] as String? ?? '';
           final isOwner = createdBy == _uid;
 
+          // Privacy boundary (mirrors ExpenseScreen): the bill creator
+          // (leader/owner) streams the whole participants collection, while
+          // a normal member may only read their own participant document.
+          // Rules are not filters: an unfiltered collection LIST would be
+          // denied for members, so members get their own single-document
+          // stream and a member-safe view with no house-wide aggregates.
           return Padding(
             padding: const EdgeInsets.all(16),
-            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            child: isOwner
+                ? StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: col.collection('participants').snapshots(),
               builder: (context, partSnap) {
                 if (partSnap.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
+                  return const Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircularProgressIndicator(),
+                        SizedBox(height: 12),
+                        Text('Loading participants...'),
+                      ],
+                    ),
+                  );
                 }
 
                 final docs = partSnap.data?.docs ?? const [];
@@ -951,9 +967,364 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
                   },
                 );
               },
-            ),
+                    )
+                  : _MemberExpenseView(
+                      expenseId: widget.expenseId,
+                      title: title,
+                      description: description,
+                      reference: reference,
+                      dueDate: dueDate,
+                      total: total,
+                      perPerson: perPerson,
+                      billStatus: (data['status'] as String?) ?? 'pending',
+                      uid: _uid,
+                      dueLabel: _dueLabel(dueDate),
+                      dueColor: _dueColor(dueDate),
+                      onSubmitProof: (participantId) =>
+                          _confirmMarkAsPaid(widget.expenseId, participantId, title),
+                    ),
           );
         },
+      ),
+    );
+  }
+}
+
+/// Member-safe bill view: streams ONLY the viewer's own participant
+/// document (members cannot LIST the participants collection) and shows
+/// no house-wide aggregates — just their own status, share, proof state,
+/// and bill-level information that is already legitimately readable.
+class _MemberExpenseView extends StatefulWidget {
+  final String expenseId;
+  final String title;
+  final String description;
+  final String reference;
+  final DateTime dueDate;
+  final double total;
+  final double perPerson;
+  final String billStatus;
+  final String uid;
+  final String dueLabel;
+  final Color dueColor;
+  final void Function(String participantId) onSubmitProof;
+
+  const _MemberExpenseView({
+    required this.expenseId,
+    required this.title,
+    required this.description,
+    required this.reference,
+    required this.dueDate,
+    required this.total,
+    required this.perPerson,
+    required this.billStatus,
+    required this.uid,
+    required this.dueLabel,
+    required this.dueColor,
+    required this.onSubmitProof,
+  });
+
+  @override
+  State<_MemberExpenseView> createState() => _MemberExpenseViewState();
+}
+
+class _MemberExpenseViewState extends State<_MemberExpenseView> {
+  int _version = 0;
+
+  void _retry() {
+    setState(() {
+      _version++;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      key: ValueKey(_version),
+      stream: FirebaseFirestore.instance
+          .collection('house_expenses')
+          .doc(widget.expenseId)
+          .collection('participants')
+          .doc(widget.uid)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+          return const Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 12),
+                Text('Loading your status...'),
+              ],
+            ),
+          );
+        }
+
+        if (snapshot.hasError) {
+          debugPrint('Member participant read error: ${snapshot.error}');
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Could not load your payment status.',
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                ElevatedButton.icon(
+                  onPressed: _retry,
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('Try again'),
+                ),
+              ],
+            ),
+          );
+        }
+
+        final ownDoc = snapshot.data;
+        final ownData = (ownDoc != null && ownDoc.exists)
+            ? ownDoc.data() ?? const <String, dynamic>{}
+            : null;
+
+        return ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            Card(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.title,
+                      style: Theme.of(
+                        context,
+                      ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      widget.dueLabel,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: widget.dueColor,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text('Total: ₺${widget.total.toStringAsFixed(2)}'),
+                    const SizedBox(height: 4),
+                    Text('Per person: ₺${widget.perPerson.toStringAsFixed(2)}'),
+                    if (widget.reference.trim().isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'Reference: ${widget.reference}',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black54,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            if (widget.billStatus == 'confirmed')
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.green.shade200, width: 2),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: 64,
+                      height: 64,
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade100,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.check_rounded,
+                        size: 36,
+                        color: Colors.green.shade700,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Bill Settled',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: Colors.green.shade700,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'All members have confirmed payment',
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodyMedium?.copyWith(color: Colors.green.shade600),
+                    ),
+                  ],
+                ),
+              ),
+            if (widget.billStatus == 'confirmed') const SizedBox(height: 16),
+            if (ownData == null)
+              Card(
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                child: const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Not part of this bill',
+                        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                      ),
+                      SizedBox(height: 8),
+                      Text(
+                        'You were not listed on this bill, so there is nothing for you to pay.',
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              _MemberOwnStatusCard(
+                data: ownData,
+                dueDate: widget.dueDate,
+                description: widget.description,
+                onSubmitProof: () => widget.onSubmitProof(widget.uid),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _MemberOwnStatusCard extends StatelessWidget {
+  final Map<String, dynamic> data;
+  final DateTime dueDate;
+  final String description;
+  final VoidCallback onSubmitProof;
+
+  const _MemberOwnStatusCard({
+    required this.data,
+    required this.dueDate,
+    required this.description,
+    required this.onSubmitProof,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final status = (data['status'] as String?) ?? 'pending';
+    final amount = (data['amountOwed'] as num?)?.toDouble() ?? 0.0;
+    final paymentProofStatus = (data['paymentProofStatus'] as String?)?.trim() ?? '';
+    final paymentProofReviewReason =
+        (data['paymentProofReviewReason'] as String?)?.trim() ?? '';
+
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Your share', style: TextStyle(fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 4),
+                      Text('Share: ₺${amount.toStringAsFixed(2)}'),
+                      if (status == 'paid') ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          'Owner has not approved yet',
+                          style: Theme.of(
+                            context,
+                          ).textTheme.bodySmall?.copyWith(color: Colors.blue.shade700),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                _StatusBadge(status: status, dueDate: dueDate, isMemberView: true),
+              ],
+            ),
+            if (status == 'pending') ...[
+              if (paymentProofStatus == 'rejected') ...[
+                const SizedBox(height: 12),
+                Text(
+                  'Previously rejected — please review the reason below.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Colors.red.shade800,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                if (paymentProofReviewReason.isNotEmpty)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.red.shade100),
+                    ),
+                    child: Text(
+                      'Rejection reason: $paymentProofReviewReason',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Colors.red.shade800,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 12),
+              ],
+              if (description.trim().isNotEmpty) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.blue.shade300),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Payment Instructions',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: Colors.blue.shade700,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(description, style: Theme.of(context).textTheme.bodySmall),
+                    ],
+                  ),
+                ),
+              ],
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: onSubmitProof,
+                  child: const Text('Submit payment proof'),
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
