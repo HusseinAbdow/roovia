@@ -143,7 +143,7 @@ class AnalyticsPeriodEmptyState extends StatelessWidget {
 }
 
 /// Defense-in-depth guard: financial analytics expose individual member
-/// financial data, so only the house leader may use this screen.
+/// financial data, so only the house owner may use this screen.
 class AnalyticsLeaderOnlyState extends StatelessWidget {
   const AnalyticsLeaderOnlyState({super.key});
 
