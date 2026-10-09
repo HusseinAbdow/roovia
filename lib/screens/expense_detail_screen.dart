@@ -24,6 +24,21 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
 
   String get _uid => FirebaseAuth.instance.currentUser?.uid ?? '';
 
+  int _expenseVersion = 0;
+  int _participantsVersion = 0;
+
+  void _retryExpense() {
+    setState(() {
+      _expenseVersion++;
+    });
+  }
+
+  void _retryParticipants() {
+    setState(() {
+      _participantsVersion++;
+    });
+  }
+
   int _countStatus(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, String status) {
     return docs.where((doc) => (doc.data()['status'] as String? ?? 'pending') == status).length;
   }
@@ -422,8 +437,30 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Bill')),
       body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        key: ValueKey('expense-$_expenseVersion'),
         stream: col.snapshots(),
         builder: (context, snap) {
+          // Stream failures must never read as a missing bill.
+          if (snap.hasError) {
+            debugPrint('Expense read error: ${snap.error}');
+            return Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Could not load this bill.',
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 12),
+                  ElevatedButton.icon(
+                    onPressed: _retryExpense,
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: const Text('Try again'),
+                  ),
+                ],
+              ),
+            );
+          }
           if (snap.connectionState == ConnectionState.waiting) {
             return const Center(
               child: Column(
@@ -465,9 +502,31 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
             padding: const EdgeInsets.all(16),
             child: isOwner
                 ? StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              key: ValueKey('participants-$_participantsVersion'),
               stream: col.collection('participants').snapshots(),
               builder: (context, partSnap) {
-                if (partSnap.connectionState == ConnectionState.waiting) {
+                // Stream failures must never read as empty participants.
+                if (partSnap.hasError) {
+                  debugPrint('Owner participant read error: ${partSnap.error}');
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          'Could not load participants.',
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 12),
+                        ElevatedButton.icon(
+                          onPressed: _retryParticipants,
+                          icon: const Icon(Icons.refresh_rounded),
+                          label: const Text('Try again'),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                if (partSnap.connectionState == ConnectionState.waiting && !partSnap.hasData) {
                   return const Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -1047,19 +1106,6 @@ class _MemberExpenseViewState extends State<_MemberExpenseView> {
           .doc(widget.uid)
           .snapshots(),
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
-          return const Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(height: 12),
-                Text('Loading your status...'),
-              ],
-            ),
-          );
-        }
-
         if (snapshot.hasError) {
           debugPrint('Member participant read error: ${snapshot.error}');
           return Center(
@@ -1076,6 +1122,19 @@ class _MemberExpenseViewState extends State<_MemberExpenseView> {
                   icon: const Icon(Icons.refresh_rounded),
                   label: const Text('Try again'),
                 ),
+              ],
+            ),
+          );
+        }
+
+        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+          return const Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 12),
+                Text('Loading your status...'),
               ],
             ),
           );

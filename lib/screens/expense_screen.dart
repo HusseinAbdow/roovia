@@ -907,7 +907,7 @@ class _CreateBillScreenState extends State<CreateBillScreen> {
   }
 }
 
-class _BillCard extends StatelessWidget {
+class _BillCard extends StatefulWidget {
   final ExpenseModel bill;
   final String currentUserId;
   final ExpenseService expenseService;
@@ -921,13 +921,26 @@ class _BillCard extends StatelessWidget {
   });
 
   @override
+  State<_BillCard> createState() => _BillCardState();
+}
+
+class _BillCardState extends State<_BillCard> {
+  int _version = 0;
+
+  void _retry() {
+    setState(() {
+      _version++;
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final isCreator = bill.createdBy == currentUserId;
+    final isCreator = widget.bill.createdBy == widget.currentUserId;
     return GestureDetector(
       onTap: () {
         Navigator.of(
           context,
-        ).push(MaterialPageRoute(builder: (_) => ExpenseDetailScreen(expenseId: bill.id)));
+        ).push(MaterialPageRoute(builder: (_) => ExpenseDetailScreen(expenseId: widget.bill.id)));
       },
       child: Card(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -941,12 +954,35 @@ class _BillCard extends StatelessWidget {
           // members stream their own single document instead.
           child: isCreator
               ? StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  key: ValueKey('owner-$_version'),
                   stream: FirebaseFirestore.instance
                       .collection('house_expenses')
-                      .doc(bill.id)
+                      .doc(widget.bill.id)
                       .collection('participants')
                       .snapshots(),
                   builder: (context, participantSnapshot) {
+                    if (participantSnapshot.hasError) {
+                      debugPrint(
+                        'Owner participant read error: ${participantSnapshot.error}',
+                      );
+                      return _BillCardContent(
+                        bill: widget.bill,
+                        isCreator: isCreator,
+                        currentUserId: widget.currentUserId,
+                        currentUserStatus: null,
+                        isParticipantLoading: false,
+                        hasOwnParticipantRecord: true,
+                        hasParticipantError: true,
+                        onParticipantRetry: _retry,
+                        participantDocs:
+                            const <QueryDocumentSnapshot<Map<String, dynamic>>>[],
+                        participantIds: const <String>[],
+                        paidParticipants:
+                            const <DocumentSnapshot<Map<String, dynamic>>>[],
+                        expenseService: widget.expenseService,
+                        houseService: widget.houseService,
+                      );
+                    }
                     final participantDocs =
                         participantSnapshot.data?.docs ??
                         const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
@@ -961,7 +997,7 @@ class _BillCard extends StatelessWidget {
                     for (final doc in participantDocs) {
                       final data = doc.data();
                       final participantId = (data['userId'] as String? ?? doc.id).trim();
-                      if (participantId == currentUserId) {
+                      if (participantId == widget.currentUserId) {
                         currentUserStatus = data['status'] as String? ?? 'pending';
                         break;
                       }
@@ -975,28 +1011,50 @@ class _BillCard extends StatelessWidget {
                     );
 
                     return _BillCardContent(
-                      bill: bill,
+                      bill: widget.bill,
                       isCreator: isCreator,
-                      currentUserId: currentUserId,
+                      currentUserId: widget.currentUserId,
                       currentUserStatus: currentUserStatus,
                       isParticipantLoading: false,
                       hasOwnParticipantRecord: true,
                       participantDocs: participantDocs,
                       participantIds: participantIds,
                       paidParticipants: paidParticipants,
-                      expenseService: expenseService,
-                      houseService: houseService,
+                      expenseService: widget.expenseService,
+                      houseService: widget.houseService,
                     );
                   },
                 )
               : StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                  key: ValueKey('member-$_version'),
                   stream: FirebaseFirestore.instance
                       .collection('house_expenses')
-                      .doc(bill.id)
+                      .doc(widget.bill.id)
                       .collection('participants')
-                      .doc(currentUserId)
+                      .doc(widget.currentUserId)
                       .snapshots(),
                   builder: (context, participantSnapshot) {
+                    // Errors must never read as missing membership.
+                    if (participantSnapshot.hasError) {
+                      debugPrint(
+                        'Member participant read error: ${participantSnapshot.error}',
+                      );
+                      return _BillCardContent(
+                        bill: widget.bill,
+                        isCreator: isCreator,
+                        currentUserId: widget.currentUserId,
+                        currentUserStatus: null,
+                        isParticipantLoading: false,
+                        hasOwnParticipantRecord: false,
+                        hasParticipantError: true,
+                        onParticipantRetry: _retry,
+                        participantDocs: const <DocumentSnapshot<Map<String, dynamic>>>[],
+                        participantIds: const <String>[],
+                        paidParticipants: const <DocumentSnapshot<Map<String, dynamic>>>[],
+                        expenseService: widget.expenseService,
+                        houseService: widget.houseService,
+                      );
+                    }
                     final ownDoc = participantSnapshot.data;
                     final participantDocs = ownDoc != null && ownDoc.exists
                         ? <DocumentSnapshot<Map<String, dynamic>>>[ownDoc]
@@ -1009,9 +1067,9 @@ class _BillCard extends StatelessWidget {
                         .toList();
 
                     return _BillCardContent(
-                      bill: bill,
+                      bill: widget.bill,
                       isCreator: isCreator,
-                      currentUserId: currentUserId,
+                      currentUserId: widget.currentUserId,
                       currentUserStatus: currentUserStatus,
                       isParticipantLoading:
                           participantSnapshot.connectionState == ConnectionState.waiting &&
@@ -1020,8 +1078,8 @@ class _BillCard extends StatelessWidget {
                       participantDocs: participantDocs,
                       participantIds: List<String>.from(participantIds),
                       paidParticipants: const <DocumentSnapshot<Map<String, dynamic>>>[],
-                      expenseService: expenseService,
-                      houseService: houseService,
+                      expenseService: widget.expenseService,
+                      houseService: widget.houseService,
                     );
                   },
                 ),
@@ -1102,8 +1160,13 @@ class _BillCardContent extends StatelessWidget {
   // hasOwnParticipantRecord is false when the viewer was not listed on the
   // bill (they owe nothing, so no personal status is shown); loading covers
   // the initial stream wait so a status is never guessed from no data.
+  // hasParticipantError is true when the participant stream failed: the card
+  // must show an error with retry and never present the failure as missing
+  // membership or empty participants.
   final bool isParticipantLoading;
   final bool hasOwnParticipantRecord;
+  final bool hasParticipantError;
+  final VoidCallback? onParticipantRetry;
   final List<DocumentSnapshot<Map<String, dynamic>>> participantDocs;
   final List<String> participantIds;
   final List<DocumentSnapshot<Map<String, dynamic>>> paidParticipants;
@@ -1117,6 +1180,8 @@ class _BillCardContent extends StatelessWidget {
     required this.currentUserStatus,
     required this.isParticipantLoading,
     required this.hasOwnParticipantRecord,
+    this.hasParticipantError = false,
+    this.onParticipantRetry,
     required this.participantDocs,
     required this.participantIds,
     required this.paidParticipants,
@@ -1263,6 +1328,27 @@ class _BillCardContent extends StatelessWidget {
             // to the bill creator; other members can only read their own
             // participant document, so aggregate counts would be misleading.
             if (isCreator) ...[
+              if (hasParticipantError) ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Could not load participants.',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: _darkGreen,
+                        ),
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: onParticipantRetry,
+                      icon: const Icon(Icons.refresh_rounded, size: 16),
+                      label: const Text('Try again'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+              ] else ...[
               // Progress bar with status color
               ClipRRect(
                 borderRadius: BorderRadius.circular(8),
@@ -1337,11 +1423,35 @@ class _BillCardContent extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 12),
+              ],
             ] else ...[
               // Non-creators see only their own payment state, not house-wide
               // aggregates their participant read permissions would not cover.
               // Viewers who were not listed on the bill have no participant
               // record and owe nothing, so no personal status is implied.
+              // Stream failures show an error with retry and are never
+              // presented as missing membership.
+              if (hasParticipantError) ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Could not load your payment status.',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: _darkGreen,
+                        ),
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: onParticipantRetry,
+                      icon: const Icon(Icons.refresh_rounded, size: 16),
+                      label: const Text('Try again'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+              ] else ...[
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -1379,6 +1489,7 @@ class _BillCardContent extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 12),
+              ],
             ],
             if (bill.status == 'confirmed') ...[
               Text(
