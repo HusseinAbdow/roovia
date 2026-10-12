@@ -117,6 +117,37 @@ service cloud.firestore {
       return expenseData(expenseId).houseId;
     }
 
+    // Ordinary-member payment submission contract. Mirrors exactly the
+    // ExpenseService.markAsPaid update payload (pending -> paid with the 9
+    // submission keys). Anything outside that allowlist — amountOwed,
+    // userId, confirmedAt, approval metadata — is denied even when the
+    // resulting status is "paid". Absent-vs-null safe: legacy participant
+    // documents may lack optional proof fields, and rejected documents
+    // carry explicit nulls; both shapes must resubmit successfully.
+    function memberPaidSubmission(expenseId, userId) {
+      return signedIn()
+          && expenseExists(expenseId)
+          && request.auth.uid == userId
+          && resource.data.userId == request.auth.uid
+          && resource.data.status == "pending"
+          && request.resource.data.status == "paid"
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.amountOwed == resource.data.amountOwed
+          && (
+            (!("confirmedAt" in resource.data) && !("confirmedAt" in request.resource.data)) ||
+            (("confirmedAt" in resource.data) && ("confirmedAt" in request.resource.data) &&
+                request.resource.data.confirmedAt == resource.data.confirmedAt)
+          )
+          && request.resource.data.paymentProofStatus == "submitted"
+          && request.resource.data.paymentProofReviewedAt == null
+          && request.resource.data.paymentProofReviewReason == null
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+            ["status", "paidAt", "paymentProofStatus", "paymentProofRevision",
+             "paymentProofNote", "paymentProofs", "paymentProofSubmittedAt",
+             "paymentProofReviewedAt", "paymentProofReviewReason"]
+          );
+    }
+
     match /house_expenses/{expenseId} {
       allow read: if signedIn()
           && resource.data.houseId is string
@@ -156,7 +187,7 @@ service cloud.firestore {
             && expenseExists(expenseId)
             && (
               isHouseLeader(expenseHouseId(expenseId)) ||
-              (resource.data.userId == request.auth.uid && request.resource.data.status == "paid")
+              memberPaidSubmission(expenseId, userId)
             );
 
         allow delete: if signedIn() && expenseExists(expenseId) && isHouseLeader(expenseHouseId(expenseId));
