@@ -75,15 +75,160 @@ service cloud.firestore {
       allow read, write: if isHouseMember(houseId) || isHouseLeader(houseId);
     }
 
+    // Per-user in-app notification authorization. The only legitimate
+    // client producers are the ExpenseService flows (bill creation, payment
+    // submission, approval, settlement, rejection, batch confirmation).
+    // Every legitimate document carries fromUserId == sender, a
+    // client-allowlisted type, a real expenseId whose houseId matches, and a
+    // sender/recipient relationship backed by the expense creator and
+    // participant documents (checked in their post-transition state, since
+    // clients notify after the payment update commits). Server-only types
+    // (chat_message, bill_due_*) are written via Admin SDK, which bypasses
+    // these rules, and are never client-creatable. Helpers are
+    // self-contained (direct exists/get) so this block does not depend on
+    // helpers declared later in the file.
+    function notifExpenseExists(expenseId) {
+      return exists(/databases/$(database)/documents/house_expenses/$(expenseId));
+    }
+
+    function notifExpenseData(expenseId) {
+      return get(/databases/$(database)/documents/house_expenses/$(expenseId)).data;
+    }
+
+    function notifParticipantExists(expenseId, uid) {
+      return exists(/databases/$(database)/documents/house_expenses/$(expenseId)/participants/$(uid));
+    }
+
+    function notifParticipantData(expenseId, uid) {
+      return get(/databases/$(database)/documents/house_expenses/$(expenseId)/participants/$(uid)).data;
+    }
+
+    function notifBaseValid(uid) {
+      return signedIn()
+          && request.resource.data.fromUserId == request.auth.uid
+          && request.resource.data.expenseId is string
+          && request.resource.data.expenseId.size() > 0
+          && notifExpenseExists(request.resource.data.expenseId)
+          && request.resource.data.houseId == notifExpenseData(request.resource.data.expenseId).houseId
+          && request.resource.data.title is string
+          && request.resource.data.body is string
+          && request.resource.data.read == false
+          && ("createdAt" in request.resource.data)
+          && !("pushSentAt" in request.resource.data)
+          && !("pushFailedAt" in request.resource.data)
+          && !("pushMessageId" in request.resource.data)
+          && !("pushErrorCode" in request.resource.data);
+    }
+
+    // Bill creation: the expense creator notifies an enrolled participant
+    // of a still-pending bill. Document ID is exactly
+    // `{expenseId}_{recipientUid}_bill_created`.
+    function notifBillCreated(uid, nid, expenseId) {
+      return request.resource.data.type == "expense_request"
+          && nid == expenseId + "_" + uid + "_bill_created"
+          && notifExpenseData(expenseId).createdBy == request.auth.uid
+          && notifParticipantExists(expenseId, uid)
+          && notifExpenseData(expenseId).status == "pending"
+          && notifParticipantData(expenseId, uid).status == "pending"
+          && request.resource.data.billAmount is number
+          && request.resource.data.billAmount == notifExpenseData(expenseId).totalAmount;
+    }
+
+    // Payment submission: a paid participant notifies the expense creator.
+    // Document ID is exactly
+    // `{expenseId}_{senderUid}_payment_proof_submitted_{revision}`.
+    function notifSubmitted(uid, nid, expenseId) {
+      return request.resource.data.type == "payment_proof_submitted"
+          && nid == expenseId + "_" + request.auth.uid + "_payment_proof_submitted_" + string(request.resource.data.paymentProofRevision)
+          && notifExpenseData(expenseId).createdBy == uid
+          && notifParticipantExists(expenseId, request.auth.uid)
+          && notifParticipantData(expenseId, request.auth.uid).status == "paid"
+          && request.resource.data.billAmount is number
+          && request.resource.data.billAmount == notifParticipantData(expenseId, request.auth.uid).amountOwed
+          && request.resource.data.paymentProofRevision is number
+          && request.resource.data.paymentProofRevision == notifParticipantData(expenseId, request.auth.uid).paymentProofRevision;
+    }
+
+    // Owner approval: the creator notifies a confirmed (approved) participant.
+    // Document ID is exactly
+    // `{expenseId}_{recipientUid}_payment_proof_approved_{revision}`.
+    function notifApproved(uid, nid, expenseId) {
+      return request.resource.data.type == "payment_proof_approved"
+          && nid == expenseId + "_" + uid + "_payment_proof_approved_" + string(request.resource.data.paymentProofRevision)
+          && notifExpenseData(expenseId).createdBy == request.auth.uid
+          && notifParticipantExists(expenseId, uid)
+          && notifParticipantData(expenseId, uid).status == "confirmed"
+          && notifParticipantData(expenseId, uid).paymentProofStatus == "approved"
+          && request.resource.data.billAmount is number
+          && request.resource.data.billAmount == notifParticipantData(expenseId, uid).amountOwed
+          && request.resource.data.paymentProofRevision is number
+          && request.resource.data.paymentProofRevision == notifParticipantData(expenseId, uid).paymentProofRevision;
+    }
+
+    // Owner rejection: the creator notifies a rejected participant.
+    // Document ID is exactly
+    // `{expenseId}_{recipientUid}_payment_proof_rejected_{revision}`.
+    function notifRejected(uid, nid, expenseId) {
+      return request.resource.data.type == "payment_proof_rejected"
+          && nid == expenseId + "_" + uid + "_payment_proof_rejected_" + string(request.resource.data.paymentProofRevision)
+          && notifExpenseData(expenseId).createdBy == request.auth.uid
+          && notifParticipantExists(expenseId, uid)
+          && notifParticipantData(expenseId, uid).status == "pending"
+          && notifParticipantData(expenseId, uid).paymentProofStatus == "rejected"
+          && request.resource.data.paymentProofRevision is number
+          && request.resource.data.paymentProofRevision == notifParticipantData(expenseId, uid).paymentProofRevision;
+    }
+
+    // Batch payment confirmation: the creator notifies a confirmed participant.
+    // Document ID is exactly `{expenseId}_{recipientUid}_payment_confirmed_batch`.
+    function notifConfirmed(uid, nid, expenseId) {
+      return request.resource.data.type == "payment_confirmed"
+          && nid == expenseId + "_" + uid + "_payment_confirmed_batch"
+          && notifExpenseData(expenseId).createdBy == request.auth.uid
+          && notifParticipantExists(expenseId, uid)
+          && notifParticipantData(expenseId, uid).status == "confirmed"
+          && request.resource.data.billAmount is number
+          && request.resource.data.billAmount == notifParticipantData(expenseId, uid).amountOwed;
+    }
+
+    // Bill settlement: the creator notifies a participant of a confirmed bill.
+    // Document ID is exactly `{expenseId}_{recipientUid}_bill_settled` (single
+    // approval flow) or `{expenseId}_{recipientUid}_bill_settled_batch`
+    // (batch settlement flow): the only two producer shapes.
+    function notifSettled(uid, nid, expenseId) {
+      return request.resource.data.type == "bill_paid"
+          && (
+            nid == expenseId + "_" + uid + "_bill_settled" ||
+            nid == expenseId + "_" + uid + "_bill_settled_batch"
+          )
+          && notifExpenseData(expenseId).createdBy == request.auth.uid
+          && notifParticipantExists(expenseId, uid)
+          && notifExpenseData(expenseId).status == "confirmed"
+          && request.resource.data.billAmount is number
+          && request.resource.data.billAmount == notifExpenseData(expenseId).totalAmount;
+    }
+
     // Per-user in-app notifications collection.
     match /user_notifications/{uid}/notifications/{nid} {
       // Users may read their own notifications
       allow read: if isSelf(uid);
 
-      // Allow creating notifications (so clients can write lightweight in-app notifications).
-      // This is intentionally permissive so features like bill requests can create
-      // notifications for members. Updates/deletes restricted to the notification owner.
-      allow create: if signedIn();
+      // Client creation is limited to the legitimate producer envelope:
+      // sender-bound, allowlisted type, real expense with matching house,
+      // deterministic document ID, role-checked sender/recipient, and
+      // financial values pinned to the authoritative expense/participant
+      // documents. Everything else (server types, unknown types, forgeries)
+      // is denied. Updates/deletes restricted to the notification owner,
+      // so a sender cannot rewrite a delivered notification.
+      allow create: if notifBaseValid(uid)
+          && (
+            notifBillCreated(uid, nid, request.resource.data.expenseId) ||
+            notifSubmitted(uid, nid, request.resource.data.expenseId) ||
+            notifApproved(uid, nid, request.resource.data.expenseId) ||
+            notifRejected(uid, nid, request.resource.data.expenseId) ||
+            notifConfirmed(uid, nid, request.resource.data.expenseId) ||
+            notifSettled(uid, nid, request.resource.data.expenseId)
+          );
       allow update, delete: if isSelf(uid);
     }
 
