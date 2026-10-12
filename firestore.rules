@@ -56,6 +56,69 @@ service cloud.firestore {
       allow update, delete: if signedIn() && resource.data.leaderId == request.auth.uid;
     }
 
+    // Phase 2D.2 public data foundation. No application migration yet:
+    // existing users/houses permissions below are unchanged.
+    //
+    // user_profiles/{uid} is the future public directory. The private
+    // users/{uid} document keeps email, FCM tokens, storage paths, and
+    // house-membership pointers; none of those keys are allowlisted here.
+    // rating is intentionally excluded until its authority/usage is set.
+    function validPublicProfile() {
+      return request.resource.data.keys().hasOnly(
+            ['uid', 'name', 'username', 'profileImageUrl', 'bio', 'updatedAt'])
+          && request.resource.data.uid is string
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.name is string
+          && request.resource.data.name.size() >= 1
+          && request.resource.data.name.size() <= 80
+          && request.resource.data.username is string
+          && request.resource.data.username.matches('^[a-z0-9_]{3,20}$')
+          && request.resource.data.profileImageUrl is string
+          && request.resource.data.profileImageUrl.size() <= 2048
+          && request.resource.data.bio is string
+          && request.resource.data.bio.size() <= 500
+          && request.resource.data.updatedAt is timestamp;
+    }
+
+    match /user_profiles/{uid} {
+      allow read: if signedIn();
+      allow create: if isSelf(uid)
+          && request.resource.data.uid == uid
+          && validPublicProfile();
+      allow update: if isSelf(uid)
+          && request.resource.data.uid == uid
+          && resource.data.uid == uid
+          && validPublicProfile();
+      // No delete: preserves member-list, chat-sender, and analytics
+      // references. Revisit only with tombstone semantics.
+    }
+
+    // house_public/{houseId} is the future discovery summary. The
+    // authoritative private houses/{houseId} document keeps address,
+    // inviteCode, members, leaderId, and private settings.
+    //
+    // Client writes stay denied: rules cannot force atomic dual-writes of
+    // houses + house_public, nor cascading deletes, so a client could leave
+    // stale memberCount/costs/discoverable behind. Synchronization requires
+    // a trusted backend (Cloud Function onWrite houses -> house_public).
+    // Do not implement client writes here without that backend.
+    match /house_public/{houseId} {
+      allow read: if signedIn();
+      // No create/update/delete for clients.
+    }
+
+    // usernames/{normalizedUsername} reservation map (evaluated, not enabled).
+    // A safe rule would require an atomic batch of usernames/{name} +
+    // user_profiles/{uid} enforced via getAfter() so a claim cannot exist
+    // without its matching profile (no unlimited standalone squatting) and
+    // duplicates are rejected. That design needs client dual-write support
+    // from the next checkpoint, so client writes stay denied here to avoid
+    // shipping a squattable reservation rule.
+    match /usernames/{normalizedUsername} {
+      allow read: if signedIn();
+      // No create/update/delete for clients yet.
+    }
+
     match /join_requests/{requestId} {
       allow create: if signedIn()
           && request.resource.data.userId == request.auth.uid
