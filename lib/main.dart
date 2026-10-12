@@ -1,14 +1,48 @@
 import 'dart:async';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:roovia/screens/chat_screen.dart';
 import 'package:roovia/screens/login_screen.dart';
+import 'package:roovia/screens/main_screen.dart';
 import 'package:roovia/services/fcm_service.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'screens/expense_detail_screen.dart';
 import 'firebase_options.dart';
+
+/// Declarative startup destination. Pure and unit-testable:
+/// errors never resolve to signed-out; [initializing] always shows splash.
+enum AuthHome { splash, login, main, error }
+
+AuthHome resolveAuthHome({
+  required bool initializing,
+  required bool hasError,
+  required bool hasUser,
+}) {
+  if (initializing) {
+    return AuthHome.splash;
+  }
+  if (hasError) {
+    return AuthHome.error;
+  }
+  if (hasUser) {
+    return AuthHome.main;
+  }
+  return AuthHome.login;
+}
+
+/// True when a notification payload carries a private destination.
+/// Trims values so whitespace-only payloads are ignored.
+bool notificationHasDestination(Map<String, String>? payload) {
+  if (payload == null) {
+    return false;
+  }
+  final expenseId = payload['expenseId']?.trim() ?? '';
+  final houseId = payload['houseId']?.trim() ?? '';
+  return expenseId.isNotEmpty || houseId.isNotEmpty;
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -35,35 +69,116 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
-  bool _initialRouteHandled = false;
+  static const _darkGreen = Color(0xFF0B3D2E);
+
+  StreamSubscription<User?>? _authSubscription;
+  bool _authInitializing = true;
+  User? _authUser;
+  Object? _authError;
+
+  Map<String, String>? _pendingNotification;
+  bool _initialNotificationStashed = false;
   bool _fcmInitialized = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _subscribeAuth();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _fcmInitialized) return;
       _fcmInitialized = true;
       unawaited(
         FcmService.instance.init(
-          onNotificationTap: (payload) async {
-            final expenseId = payload['expenseId']?.trim() ?? '';
-            final houseId = payload['houseId']?.trim() ?? '';
-
-            if (expenseId.isNotEmpty) {
-              widget.navigatorKey?.currentState?.push(
-                MaterialPageRoute(builder: (_) => ExpenseDetailScreen(expenseId: expenseId)),
-              );
-            } else if (houseId.isNotEmpty) {
-              widget.navigatorKey?.currentState?.push(
-                MaterialPageRoute(builder: (_) => ChatScreen(houseId: houseId)),
-              );
-            }
-          },
+          onNotificationTap: _handleNotificationTap,
         ),
       );
     });
+  }
+
+  void _subscribeAuth() {
+    unawaited(_authSubscription?.cancel());
+    _authSubscription = FirebaseAuth.instance.authStateChanges().listen(
+      (user) {
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          final wasSignedIn = _authUser != null;
+          final signedOut = wasSignedIn && user == null;
+          // Avoid leaking one account's pending destination into the next
+          // session. Pending created while signed out is kept so login can
+          // still route to it (requirement: do not discard merely because
+          // auth was initially unresolved).
+          if (signedOut) {
+            _pendingNotification = null;
+          }
+          _authInitializing = false;
+          _authUser = user;
+          _authError = null;
+        });
+        _drainPendingNotificationIfReady();
+      },
+      onError: (Object error) {
+        if (!mounted) {
+          return;
+        }
+        // Never treat stream errors as signed-out.
+        setState(() {
+          _authInitializing = false;
+          _authError = error;
+        });
+      },
+    );
+  }
+
+  void _handleNotificationTap(Map<String, String> payload) {
+    if (!notificationHasDestination(payload)) {
+      return;
+    }
+    _pendingNotification = Map<String, String>.from(payload);
+    _drainPendingNotificationIfReady();
+  }
+
+  void _drainPendingNotificationIfReady() {
+    if (_authInitializing || _authError != null) {
+      return;
+    }
+    // Keep pending while signed out so a subsequent login can still route.
+    if (_authUser == null) {
+      return;
+    }
+    final pending = _pendingNotification;
+    if (pending == null || !notificationHasDestination(pending)) {
+      return;
+    }
+    _pendingNotification = null;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        _pendingNotification = pending;
+        return;
+      }
+      if (FirebaseAuth.instance.currentUser == null) {
+        _pendingNotification = pending;
+        return;
+      }
+      _pushNotificationDestination(pending);
+    });
+  }
+
+  void _pushNotificationDestination(Map<String, String> payload) {
+    final expenseId = payload['expenseId']?.trim() ?? '';
+    final houseId = payload['houseId']?.trim() ?? '';
+
+    if (expenseId.isNotEmpty) {
+      widget.navigatorKey?.currentState?.push(
+        MaterialPageRoute(builder: (_) => ExpenseDetailScreen(expenseId: expenseId)),
+      );
+    } else if (houseId.isNotEmpty) {
+      widget.navigatorKey?.currentState?.push(
+        MaterialPageRoute(builder: (_) => ChatScreen(houseId: houseId)),
+      );
+    }
   }
 
   @override
@@ -76,6 +191,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    unawaited(_authSubscription?.cancel());
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -83,27 +199,42 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_initialRouteHandled) return;
+    if (_initialNotificationStashed) return;
     final payload = widget.initialNotificationData;
-    if (payload == null) return;
+    if (payload == null || !notificationHasDestination(payload)) return;
 
-    final expenseId = payload['expenseId']?.trim() ?? '';
-    final houseId = payload['houseId']?.trim() ?? '';
-    if (expenseId.isEmpty && houseId.isEmpty) return;
+    // Cold-start notification: stash and route only after auth resolves.
+    // Never push private screens before authentication is known.
+    _initialNotificationStashed = true;
+    _pendingNotification = Map<String, String>.from(payload);
+    _drainPendingNotificationIfReady();
+  }
 
-    _initialRouteHandled = true;
-    SchedulerBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      if (expenseId.isNotEmpty) {
-        widget.navigatorKey?.currentState?.push(
-          MaterialPageRoute(builder: (_) => ExpenseDetailScreen(expenseId: expenseId)),
-        );
-      } else if (houseId.isNotEmpty) {
-        widget.navigatorKey?.currentState?.push(
-          MaterialPageRoute(builder: (_) => ChatScreen(houseId: houseId)),
-        );
-      }
+  void _retryAuth() {
+    if (!mounted) return;
+    setState(() {
+      _authInitializing = true;
+      _authError = null;
     });
+    _subscribeAuth();
+  }
+
+  Widget _buildHome() {
+    final destination = resolveAuthHome(
+      initializing: _authInitializing,
+      hasError: _authError != null,
+      hasUser: _authUser != null,
+    );
+    switch (destination) {
+      case AuthHome.splash:
+        return const _AuthSplashScreen();
+      case AuthHome.error:
+        return _AuthErrorScreen(onRetry: _retryAuth);
+      case AuthHome.main:
+        return const MainScreen();
+      case AuthHome.login:
+        return const LoginScreen();
+    }
   }
 
   @override
@@ -175,7 +306,88 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         ),
       ),
       navigatorKey: widget.navigatorKey,
-      home: const LoginScreen(),
+      home: _buildHome(),
+    );
+  }
+}
+
+class _AuthSplashScreen extends StatelessWidget {
+  const _AuthSplashScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      backgroundColor: Color(0xFFF7FAF8),
+      body: SafeArea(
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.eco_rounded,
+                size: 44,
+                color: _MyAppState._darkGreen,
+              ),
+              SizedBox(height: 20),
+              CircularProgressIndicator(
+                color: _MyAppState._darkGreen,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AuthErrorScreen extends StatelessWidget {
+  final VoidCallback onRetry;
+
+  const _AuthErrorScreen({required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF7FAF8),
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.cloud_off_outlined,
+                  size: 44,
+                  color: _MyAppState._darkGreen,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Could not check your sign-in status.',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: _MyAppState._darkGreen,
+                      ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Please check your connection and try again. You have not been signed out.',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: _MyAppState._darkGreen.withValues(alpha: 0.75),
+                      ),
+                ),
+                const SizedBox(height: 20),
+                ElevatedButton(
+                  onPressed: onRetry,
+                  child: const Text('Try again'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

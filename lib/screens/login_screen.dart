@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:roovia/screens/main_screen.dart';
 import 'package:roovia/screens/sign_up_screen.dart';
 
 import '../services/auth_service.dart';
@@ -58,12 +57,10 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() => _loading = false);
 
       if (user != null) {
-        debugPrint('NAVIGATING TO DASHBOARD (login)');
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const MainScreen()),
-          (route) => false,
-        );
-        debugPrint('NAVIGATION TO DASHBOARD TRIGGERED (login)');
+        debugPrint('Login success, waiting for auth gate to open MainScreen.');
+        // Navigation is handled declaratively by the authentication gate in
+        // lib/main.dart via FirebaseAuth.authStateChanges. Do not push
+        // MainScreen here to avoid duplicate instances.
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Unable to sign in right now.')),

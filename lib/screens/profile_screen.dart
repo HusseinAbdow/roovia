@@ -10,7 +10,6 @@ import '../models/user_model.dart';
 import '../services/auth_service.dart';
 import '../services/house_service.dart';
 import 'edit_profile_screen.dart';
-import 'login_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -42,14 +41,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     try {
       await _authService.signOut();
 
-      if (!mounted) {
-        return;
-      }
-
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-        (route) => false,
-      );
+      // Navigation back to LoginScreen is handled declaratively by the
+      // authentication gate in lib/main.dart. Do not push here to avoid
+      // duplicate login routes.
+      debugPrint('Sign out success, waiting for auth gate to open LoginScreen.');
     } catch (_) {
       if (!mounted) {
         return;
