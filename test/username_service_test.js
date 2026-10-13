@@ -292,6 +292,86 @@ async function run() {
   assert.strictEqual((await readDoc('user_profiles/be-ghost')).data().username, 'be_orphan');
   assert.strictEqual((await readDoc('users/be-ghost')).data().username, 'be_orphan');
 
+  // Truncation guard: bounded legacy scans fail closed instead of
+  // approving on a partial sample. Four holders are still decided by the
+  // ownership loop; five or more (a full result page) is rejected even
+  // when every sampled holder looks harmless.
+  for (let i = 0; i < 4; i += 1) {
+    await db.collection('users').doc(`be-t4-${i}`).set({ uid: `be-t4-${i}`, username: 'be_trunc4' });
+  }
+  await expectCode(
+    'four legacy holders denied by ownership',
+    'already-exists',
+    service.claimUsername(db, 'be-t4-new', 'be_trunc4'),
+  );
+  assert.strictEqual((await readDoc('usernames/be_trunc4')).exists, false);
+  assert.strictEqual((await readDoc('user_profiles/be-t4-new')).exists, false);
+  assert.strictEqual((await readDoc('users/be-t4-new')).exists, false);
+
+  for (let i = 0; i < 5; i += 1) {
+    await db.collection('users').doc(`be-t5-${i}`).set({ uid: `be-t5-${i}`, username: 'be_trunc5' });
+  }
+  await expectCode(
+    'full legacy page fails closed',
+    'failed-precondition',
+    service.claimUsername(db, 'be-t5-new', 'be_trunc5'),
+  );
+  assert.strictEqual((await readDoc('usernames/be_trunc5')).exists, false);
+  assert.strictEqual((await readDoc('user_profiles/be-t5-new')).exists, false);
+  assert.strictEqual((await readDoc('users/be-t5-new')).exists, false);
+
+  // Conflicting holders beyond the query limit stay protected: seven
+  // holders can never all be sampled, so the claim is rejected and no
+  // ownership change occurs.
+  for (let i = 0; i < 7; i += 1) {
+    await db.collection('users').doc(`be-t7-${i}`).set({ uid: `be-t7-${i}`, username: 'be_trunc7' });
+  }
+  await expectCode(
+    'beyond-limit holders fail closed',
+    'failed-precondition',
+    service.claimUsername(db, 'be-t7-new', 'be_trunc7'),
+  );
+  assert.strictEqual((await readDoc('usernames/be_trunc7')).exists, false);
+  assert.strictEqual((await readDoc('user_profiles/be-t7-new')).exists, false);
+  assert.strictEqual((await readDoc('users/be-t7-new')).exists, false);
+
+  // Both legacy collections are guarded: five holders in user_profiles
+  // alone also fails closed.
+  for (let i = 0; i < 5; i += 1) {
+    await db.collection('user_profiles').doc(`be-tp5-${i}`).set({
+      uid: `be-tp5-${i}`,
+      name: `Trunc ${i}`,
+      username: 'be_truncp5',
+      profileImageUrl: '',
+      bio: '',
+    });
+  }
+  await expectCode(
+    'directory-side full page fails closed',
+    'failed-precondition',
+    service.claimUsername(db, 'be-tp5-new', 'be_truncp5'),
+  );
+  assert.strictEqual((await readDoc('usernames/be_truncp5')).exists, false);
+
+  // Split holdings stay caught by the ownership loop even though neither
+  // collection reaches the truncation limit.
+  for (let i = 0; i < 3; i += 1) {
+    await db.collection('users').doc(`be-ts-${i}`).set({ uid: `be-ts-${i}`, username: 'be_truncs' });
+    await db.collection('user_profiles').doc(`be-ts-p${i}`).set({
+      uid: `be-ts-p${i}`,
+      name: `Split ${i}`,
+      username: 'be_truncs',
+      profileImageUrl: '',
+      bio: '',
+    });
+  }
+  await expectCode(
+    'split-collection holders denied',
+    'already-exists',
+    service.claimUsername(db, 'be-ts-new', 'be_truncs'),
+  );
+  assert.strictEqual((await readDoc('usernames/be_truncs')).exists, false);
+
   // Migration gate fail-closed: missing gate denies without writing.
   await disableGate();
   await expectCode(

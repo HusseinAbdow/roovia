@@ -25,6 +25,11 @@ const { FieldValue } = require('firebase-admin/firestore');
 
 const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
 const GATE_DOC_PATH = 'config/usernameService';
+// Bounded legacy-holder scan size. Reads stay small and predictable; a full
+// result page proves nothing about the remainder, so reaching it rejects the
+// operation instead (fail closed). Never raise this to "fix" a rejection:
+// crowded names need manual migration triage, not a bigger sample.
+const LEGACY_SCAN_LIMIT = 5;
 
 function normalizeUsername(raw) {
   if (typeof raw !== 'string') {
@@ -137,11 +142,19 @@ async function transactUsername(db, uid, rawUsername) {
       return { username, status: 'already-owned' };
     }
 
-    // Legacy guard: no unmigrated holder may own this name.
+    // Legacy guard: no unmigrated holder may own this name. A full result
+    // page may omit conflicting holders beyond the limit, so a full page
+    // rejects the operation instead of approving on a partial sample.
     for (const collection of ['users', 'user_profiles']) {
       const matches = await tx.get(
-        db.collection(collection).where('username', '==', username).limit(5),
+        db.collection(collection).where('username', '==', username).limit(LEGACY_SCAN_LIMIT),
       );
+      if (matches.size >= LEGACY_SCAN_LIMIT) {
+        throw new functions.https.HttpsError(
+          'failed-precondition',
+          'That username needs manual migration review before it can be claimed.',
+        );
+      }
       for (const candidate of matches.docs) {
         if (ownerOf(candidate) !== caller) {
           throw new functions.https.HttpsError(
