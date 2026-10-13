@@ -1,5 +1,6 @@
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
+const { handleClaimUsername, handleChangeUsername } = require('./usernames');
 
 admin.initializeApp();
 
@@ -485,3 +486,31 @@ exports.processBillReminders = functions.pubsub
     console.log(`Reminder run complete. Notifications sent for ${processed} expenses.`);
     return null;
   });
+
+/**
+ * Phase 2D.5 trusted username service (fail-closed until migration).
+ *
+ * The caller never supplies a UID: it is derived from Firebase Auth context.
+ * Every operation stays denied while config/usernameService.enabled is not
+ * true, so an accidental deployment cannot take legacy usernames. No Auth
+ * onCreate trigger yet; existing signup/profile flows are unchanged.
+ */
+function authUidOrThrow(context) {
+  const uid = context && context.auth ? context.auth.uid : null;
+  if (typeof uid !== 'string' || uid.trim() === '') {
+    throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
+  }
+  return uid;
+}
+
+exports.claimUsername = functions.https.onCall(async (data, context) => {
+  const uid = authUidOrThrow(context);
+  const username = data ? data.username : '';
+  return handleClaimUsername(db, uid, username);
+});
+
+exports.changeUsername = functions.https.onCall(async (data, context) => {
+  const uid = authUidOrThrow(context);
+  const username = data ? data.username : '';
+  return handleChangeUsername(db, uid, username);
+});
