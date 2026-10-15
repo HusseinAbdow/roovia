@@ -1,6 +1,7 @@
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
 const { handleClaimUsername, handleChangeUsername } = require('./usernames');
+const { handleHouseWrite } = require('./housePublic');
 
 admin.initializeApp();
 
@@ -514,3 +515,19 @@ exports.changeUsername = functions.https.onCall(async (data, context) => {
   const username = data ? data.username : '';
   return handleChangeUsername(db, uid, username);
 });
+
+/**
+ * Phase 2D.10 trusted house-public projection (fail-safe by construction).
+ *
+ * Mirrors authoritative houses/{houseId} into house_public/{houseId} via the
+ * Admin SDK. Clients cannot write house_public (rules deny all client
+ * writes), so this trigger is the only publication path. No backfill and no
+ * Flutter read migration yet.
+ */
+exports.syncHousePublic = functions.firestore
+  .document('houses/{houseId}')
+  .onWrite(async (change, context) => {
+    // Snapshots are advisory only: the handler projects current committed
+    // state transactionally, so redelivery order cannot corrupt output.
+    return handleHouseWrite(db, context.params.houseId);
+  });
