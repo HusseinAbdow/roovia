@@ -2,6 +2,7 @@ const functions = require('firebase-functions');
 const admin = require('firebase-admin');
 const { handleClaimUsername, handleChangeUsername } = require('./usernames');
 const { handleHouseWrite } = require('./housePublic');
+const { handleJoinByInvite } = require('./invites');
 
 admin.initializeApp();
 
@@ -531,3 +532,18 @@ exports.syncHousePublic = functions.firestore
     // state transactionally, so redelivery order cannot corrupt output.
     return handleHouseWrite(db, context.params.houseId);
   });
+
+/**
+ * Phase 2D.12 secure invitation resolution (fail-safe by construction).
+ *
+ * Replaces client-side invitation-code queries over private houses. The
+ * caller never supplies identity or house selection: UID comes from Firebase
+ * Auth context and the house is resolved server-side from the code. Only a
+ * minimal join context is returned; address, members, invite codes, costs,
+ * and tokens never leave the backend.
+ */
+exports.joinByInvite = functions.https.onCall(async (data, context) => {
+  const uid = authUidOrThrow(context);
+  const code = data ? data.code : '';
+  return handleJoinByInvite(db, uid, code);
+});

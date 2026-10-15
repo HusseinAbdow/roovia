@@ -6,8 +6,11 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 
+import 'package:cloud_functions/cloud_functions.dart';
+
 import '../models/house_model.dart';
 import '../models/join_request_model.dart';
+import 'invite_parsing.dart' as invite_parsing;
 
 class HouseService {
   static const String _inviteCodeAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -982,11 +985,37 @@ class HouseService {
     }
   }
 
+  static final FirebaseFunctions _functions = _initFunctions();
+
+  // The backend deploys to the default region; route to a local emulator
+  // only when explicitly configured via --dart-define (no effect otherwise).
+  static FirebaseFunctions _initFunctions() {
+    final functions = FirebaseFunctions.instance;
+    const host = String.fromEnvironment('FUNCTIONS_EMULATOR_HOST', defaultValue: '');
+    if (host.isNotEmpty) {
+      functions.useFunctionsEmulator(
+        host,
+        const int.fromEnvironment('FUNCTIONS_EMULATOR_PORT', defaultValue: 5001),
+      );
+    }
+    return functions;
+  }
+
+  /// Parses a joinByInvite Callable result (pure helper in invite_parsing).
+  static JoinRequest parseJoinInviteResult(Map<String, dynamic> result, String userId) =>
+      invite_parsing.parseJoinInviteResult(result, userId);
+
+  /// Maps a joinByInvite failure to a user-safe error (pure helper).
+  static StateError joinInviteErrorMessage(FirebaseFunctionsException error) =>
+      invite_parsing.joinInviteErrorMessage(error);
+
   Future<JoinRequest> joinByInviteCode(String code, String userId) async {
-    final normalizedCode = _normalizeInviteCode(code);
+    // The trusted joinByInvite backend resolves the code and creates the
+    // join request: no client-side private-house reads on any platform.
+    final trimmedCode = code.trim();
     final normalizedUserId = userId.trim();
 
-    if (normalizedCode.isEmpty) {
+    if (trimmedCode.isEmpty) {
       throw ArgumentError('Invite code cannot be empty');
     }
 
@@ -994,97 +1023,25 @@ class HouseService {
       throw ArgumentError('User ID cannot be empty');
     }
 
-    debugPrint(
-      'HouseService.joinByInviteCode started | code="$normalizedCode" | userId="$normalizedUserId" | projectId=${Firebase.app().options.projectId}',
-    );
-
     try {
-      final houseSnapshot = await _db
-          .collection('houses')
-          .where('inviteCode', isEqualTo: normalizedCode)
-          .limit(1)
-          .get()
+      final callable = _functions.httpsCallable('joinByInvite');
+      final response = await callable
+          .call({'code': trimmedCode})
           .timeout(_networkTimeout);
 
-      House? house;
-      if (houseSnapshot.docs.isNotEmpty) {
-        house = _houseFromDocWithFallback(houseSnapshot.docs.first, source: 'joinByInviteCode');
-        debugPrint(
-          'HouseService.joinByInviteCode exact match | houseId=${house.houseId} | name=${house.name} | inviteCode=${house.inviteCode}',
-        );
-      } else {
-        final allSnapshot = await _db.collection('houses').get().timeout(_networkTimeout);
-        for (final doc in allSnapshot.docs) {
-          final candidate = _houseFromDocWithFallback(doc, source: 'joinByInviteCode');
-          if (_normalizeInviteCode(candidate.inviteCode) == normalizedCode) {
-            house = candidate;
-            debugPrint(
-              'HouseService.joinByInviteCode fallback normalized match | houseId=${house.houseId} | name=${house.name} | inviteCode=${house.inviteCode}',
-            );
-            break;
-          }
-        }
-      }
-
-      if (house == null) {
-        debugPrint(
-          'HouseService.joinByInviteCode no house found with this code | code="$normalizedCode"',
-        );
-        throw StateError('Invalid code');
-      }
-
-      if (house.members.contains(normalizedUserId)) {
-        throw StateError('User is already a member of this house');
-      }
-
-      final userDoc = await _db
-          .collection('users')
-          .doc(normalizedUserId)
-          .get()
-          .timeout(_networkTimeout);
-      final userCurrentHouseId = (userDoc.data()?['currentHouseId'] as String?)?.trim();
-
-      if (userCurrentHouseId != null && userCurrentHouseId.isNotEmpty) {
-        throw StateError('User is already in another house');
-      }
-
-      final existingHouseMembership = await _db
-          .collection('houses')
-          .where('members', arrayContains: normalizedUserId)
-          .limit(1)
-          .get()
-          .timeout(_networkTimeout);
-
-      if (existingHouseMembership.docs.isNotEmpty) {
-        throw StateError('User is already in another house');
-      }
-
-      final existingPending = await _db
-          .collection('join_requests')
-          .where('houseId', isEqualTo: house.houseId)
-          .where('userId', isEqualTo: normalizedUserId)
-          .where('status', isEqualTo: JoinRequestStatus.pending)
-          .limit(1)
-          .get()
-          .timeout(_networkTimeout);
-
-      if (existingPending.docs.isNotEmpty) {
-        throw StateError('A pending request already exists for this house');
-      }
-
-      final request = await createJoinRequest(houseId: house.houseId, userId: normalizedUserId);
-
-      debugPrint(
-        'HouseService.joinByInviteCode request created | requestId=${request.id} | houseId=${house.houseId} | userId=$normalizedUserId',
+      final rawData = response.data;
+      final request = parseJoinInviteResult(
+        rawData is Map
+            ? Map<String, dynamic>.from(rawData)
+            : const <String, dynamic>{},
+        normalizedUserId,
       );
+      debugPrint('HouseService.joinByInviteCode backend request created | requestId=${request.id}');
       return request;
-    } on FirebaseException catch (e, stackTrace) {
-      debugPrint('HouseService.joinByInviteCode firebase error: ${e.code}');
+    } on FirebaseFunctionsException catch (e, stackTrace) {
+      debugPrint('HouseService.joinByInviteCode callable error: ${e.code}');
       debugPrintStack(stackTrace: stackTrace);
-      if (_isMissingDefaultDbError(e)) {
-        throw _missingFirestoreDbError();
-      }
-      rethrow;
+      throw joinInviteErrorMessage(e);
     } on TimeoutException catch (e, stackTrace) {
       debugPrint('HouseService.joinByInviteCode timeout: $e');
       debugPrintStack(stackTrace: stackTrace);
