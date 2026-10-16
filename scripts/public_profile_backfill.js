@@ -1,4 +1,4 @@
-// Phase 2D.13B public-profile backfill foundation (LOCAL, emulator only).
+// Phase 2D.13B/2D.13E public-profile backfill (LOCAL, emulator only).
 //
 // Admin-only tool that creates missing user_profiles/{uid} documents from
 // private users/{uid} documents. The client migration and the private-user
@@ -8,16 +8,22 @@
 // What it does:
 //   - Reads users/* with bounded pagination.
 //   - Creates the allowlisted public shape for UIDs that have no
-//     user_profiles/{uid} document yet.
-//   - Reports (anonymized) every skipped record and every legacy duplicate
-//     username group WITHOUT correcting them.
+//     user_profiles/{uid} document yet. Every eligible user receives a
+//     profile: valid legacy usernames are preserved verbatim, while
+//     missing/invalid legacy usernames map to the explicit unclaimed
+//     sentinel username '' (permitted by firestore.rules since 2D.13D).
+//   - Reports (anonymized) every skipped record, every unclaimed-username
+//     record, and every legacy duplicate username group WITHOUT correcting
+//     them: no usernames are generated, repaired, or reserved.
 //
 // What it never does:
 //   - Overwrite, update, or delete any existing document (create-only).
 //   - Copy private fields (email, FCM tokens, storage paths, membership
 //     pointers, invite codes, rating).
 //   - Generate usernames from email or invent usernames in any other way.
-//   - Establish global username uniqueness (duplicates are reported as-is).
+//   - Create username reservations or activate the username service.
+//   - Establish global username uniqueness (duplicates are reported as-is
+//     with ownership unresolved).
 //
 // Safety model (fail-closed, checked before any read):
 //   1. FIRESTORE_EMULATOR_HOST must be set (proves emulator targeting).
@@ -184,22 +190,30 @@ function pickPublicSource(data) {
   };
 }
 
-// Pure constructor for one public profile. Usernames are preserved verbatim
-// when (and only when) they already satisfy the rules regex; missing or
-// invalid usernames are skipped, never generated or repaired. Display names
-// may fall back to 'Member' (rules-legal); image URLs fall back to ''.
+// Pure constructor for one public profile. Valid legacy usernames are
+// preserved verbatim. Missing/invalid legacy usernames map to the explicit
+// unclaimed sentinel '' (rules-legal since 2D.13D) and are flagged for
+// anonymized reporting; they are never generated, lowercased, or repaired.
+// Display names may fall back to 'Member' (rules-legal); image URLs fall
+// back to ''.
 function buildPublicProfile(uid, picked) {
   const source = {
     name: typeof picked.name === 'string' ? picked.name : '',
     username: typeof picked.username === 'string' ? picked.username : '',
     profileImageUrl: typeof picked.profileImageUrl === 'string' ? picked.profileImageUrl : '',
   };
-  const username = source.username.trim();
-  if (username === '') {
-    return { status: 'skip', reason: 'missing-username' };
-  }
-  if (!USERNAME_RE.test(username)) {
-    return { status: 'skip', reason: 'invalid-username' };
+  const rawUsername = source.username.trim();
+  let username = rawUsername;
+  let usernameUnclaimed = false;
+  let usernameIssue = '';
+  if (rawUsername === '') {
+    username = '';
+    usernameUnclaimed = true;
+    usernameIssue = 'missing-username';
+  } else if (!USERNAME_RE.test(rawUsername)) {
+    username = '';
+    usernameUnclaimed = true;
+    usernameIssue = 'invalid-username';
   }
 
   let nameDefaulted = false;
@@ -224,6 +238,8 @@ function buildPublicProfile(uid, picked) {
     fields: { uid, name, username, profileImageUrl, bio: '' },
     nameDefaulted,
     imageUrlDefaulted,
+    usernameUnclaimed,
+    usernameIssue,
   };
 }
 
@@ -389,14 +405,16 @@ async function runBackfill(db, options = {}) {
     created: 0,
     writeBatches: 0,
     skippedExisting: 0,
-    skippedMissingUsername: 0,
-    skippedInvalidUsername: 0,
+    usernameUnclaimed: 0,
+    unclaimedMissingUsername: 0,
+    unclaimedInvalidUsername: 0,
     nameDefaulted: 0,
     imageUrlDefaulted: 0,
     duplicateGroupCount: 0,
     duplicateMemberCount: 0,
   };
   const skipped = [];
+  const usernameIssues = [];
   const planned = [];
   const plannedAnons = [];
 
@@ -407,14 +425,14 @@ async function runBackfill(db, options = {}) {
       continue;
     }
     const built = buildPublicProfile(uid, picked);
-    if (built.status === 'skip') {
-      if (built.reason === 'missing-username') {
-        counts.skippedMissingUsername += 1;
+    if (built.usernameUnclaimed) {
+      counts.usernameUnclaimed += 1;
+      if (built.usernameIssue === 'missing-username') {
+        counts.unclaimedMissingUsername += 1;
       } else {
-        counts.skippedInvalidUsername += 1;
+        counts.unclaimedInvalidUsername += 1;
       }
-      skipped.push({ anon: anonUid(uid), reason: built.reason });
-      continue;
+      usernameIssues.push({ anon: anonUid(uid), issue: built.usernameIssue });
     }
     if (built.nameDefaulted) {
       counts.nameDefaulted += 1;
@@ -427,6 +445,7 @@ async function runBackfill(db, options = {}) {
   }
   plannedAnons.sort();
   skipped.sort((left, right) => (left.anon < right.anon ? -1 : left.anon > right.anon ? 1 : 0));
+  usernameIssues.sort((left, right) => (left.anon < right.anon ? -1 : left.anon > right.anon ? 1 : 0));
   counts.planned = planned.length;
 
   const duplicateGroups = findDuplicateGroups(users);
@@ -458,8 +477,10 @@ async function runBackfill(db, options = {}) {
     plannedAnons,
     createdAnons,
     skipped,
+    usernameIssues,
     notes: [
-      'Duplicate legacy usernames are reported as-is; this tool does not establish global username uniqueness.',
+      'Profiles with username "" carry the explicit unclaimed sentinel: no name is asserted and no ownership is established.',
+      'Duplicate legacy usernames are reported as-is with ownership unresolved; this tool does not establish global username uniqueness and creates no reservations.',
       'Existing public profiles are never overwritten; re-runs converge to zero writes.',
     ],
   };
