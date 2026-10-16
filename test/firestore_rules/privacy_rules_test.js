@@ -2,7 +2,8 @@
 //
 // New collections (no application migration yet):
 //   user_profiles/{uid}  -> public directory (signed-in read, self write,
-//                           strict allowlist, no rating, no sensitive keys)
+//                           strict allowlist, no rating, no sensitive keys;
+//                           username '' allowed as unclaimed sentinel 2D.13D)
 //   house_public/{id}    -> discovery summaries (signed-in read, NO client
 //                           writes; backend sync required - see below)
 //   usernames/{name}     -> reservation map (evaluated, NOT enabled: client
@@ -218,6 +219,128 @@ async function run() {
       const ctx = env.authenticatedContext(payload.uid).firestore();
       await expectDenied(`profile create invalid: ${label}`, setDoc(profileDoc(ctx, payload.uid), payload));
     }
+
+    // ---------- 2D.13D: unclaimed username sentinel (username == '') ----------
+    // A public profile may exist without a claimed username. '' asserts no
+    // name, holds no reservation, and changes nothing else about the contract:
+    // ownership, allowlist, lengths, auth, and delete rules all still apply.
+    const emptyCtx = env.authenticatedContext('user-empty').firestore();
+
+    // 1. Owner can create a valid public profile with username: ''.
+    await assertSucceeds(
+      setDoc(profileDoc(emptyCtx, 'user-empty'), validProfile('user-empty', { username: '' })),
+    );
+
+    // 2. Owner can update permitted public fields while username remains ''.
+    await assertSucceeds(
+      updateDoc(profileDoc(emptyCtx, 'user-empty'), { name: 'Still No Handle' }),
+    );
+    await assertSucceeds(updateDoc(profileDoc(emptyCtx, 'user-empty'), { bio: 'Filling in later' }));
+    await assertSucceeds(
+      updateDoc(profileDoc(emptyCtx, 'user-empty'), {
+        profileImageUrl: 'https://example.com/b.png',
+      }),
+    );
+
+    // The sentinel does not lock the owner out of a later valid username.
+    await assertSucceeds(
+      updateDoc(profileDoc(emptyCtx, 'user-empty'), { username: 'now_claimed' }),
+    );
+    await assertSucceeds(updateDoc(profileDoc(emptyCtx, 'user-empty'), { username: '' }));
+
+    // 3. Valid nonempty usernames still work.
+    const validCtx = env.authenticatedContext('user-valid2').firestore();
+    await assertSucceeds(
+      setDoc(
+        profileDoc(validCtx, 'user-valid2'),
+        validProfile('user-valid2', { username: 'another_ok' }),
+      ),
+    );
+
+    // 4. Invalid nonempty usernames are rejected (rules do not trim).
+    const badNames = ['has space', ' a', 'a ', 'UPPER', 'ab', 'a'.repeat(21), 'bad-name!'];
+    for (let i = 0; i < badNames.length; i += 1) {
+      const uid = `user-bad${i}`;
+      const ctx = env.authenticatedContext(uid).firestore();
+      await expectDenied(
+        `invalid nonempty username ${JSON.stringify(badNames[i])}`,
+        setDoc(profileDoc(ctx, uid), validProfile(uid, { username: badNames[i] })),
+      );
+    }
+
+    // 5. Missing username field is rejected.
+    const missingCtx = env.authenticatedContext('user-nousername').firestore();
+    const missingPayload = validProfile('user-nousername');
+    delete missingPayload.username;
+    await expectDenied(
+      'profile create with missing username field',
+      setDoc(profileDoc(missingCtx, 'user-nousername'), missingPayload),
+    );
+
+    // 6. Another user cannot modify the sentinel profile.
+    await expectDenied(
+      'cross-user update of sentinel profile',
+      updateDoc(profileDoc(userB, 'user-empty'), { name: 'Hijacked' }),
+    );
+    await expectDenied(
+      'cross-user overwrite of sentinel profile',
+      setDoc(profileDoc(userB, 'user-empty'), validProfile('user-empty', { username: '' })),
+    );
+
+    // 7. Unauthenticated writes are rejected.
+    await expectDenied(
+      'unauth profile create',
+      setDoc(profileDoc(unauth, 'user-anon'), validProfile('user-anon', { username: '' })),
+    );
+    await expectDenied(
+      'unauth profile update',
+      updateDoc(profileDoc(unauth, 'user-empty'), { name: 'Anon' }),
+    );
+    await expectDenied('unauth profile delete', deleteDoc(profileDoc(unauth, 'user-empty')));
+
+    // 8. Extra private fields are rejected even alongside the sentinel.
+    const sneakCtx = env.authenticatedContext('user-sneak').firestore();
+    await expectDenied(
+      'sentinel create with private email field',
+      setDoc(
+        profileDoc(sneakCtx, 'user-sneak'),
+        validProfile('user-sneak', { username: '', email: 'sneak@example.com' }),
+      ),
+    );
+    await expectDenied(
+      'sentinel update with private field',
+      updateDoc(profileDoc(emptyCtx, 'user-empty'), { fcmToken: 'tok' }),
+    );
+
+    // 9. Client writes to usernames remain denied (reservation authority untouched).
+    await expectDenied(
+      'username claim still denied for clients',
+      setDoc(usernameDoc(emptyCtx, 'fresh_claim'), {
+        uid: 'user-empty',
+        updatedAt: new Date('2026-10-01T10:00:00Z'),
+      }),
+    );
+
+    // 10. Sentinel profile deletion remains denied.
+    await expectDenied(
+      'self sentinel profile delete',
+      deleteDoc(profileDoc(emptyCtx, 'user-empty')),
+    );
+    await expectDenied(
+      'cross-user sentinel profile delete',
+      deleteDoc(profileDoc(userB, 'user-empty')),
+    );
+
+    // 11. Private users/houses rules unchanged.
+    await expectDenied(
+      'cross-user users update',
+      updateDoc(doc(userB, 'users', USER_A), { name: 'Hijacked' }),
+    );
+    await expectDenied(
+      'unauth users update',
+      updateDoc(doc(unauth, 'users', USER_A), { name: 'Anon' }),
+    );
+    await expectDenied('cross-user users delete', deleteDoc(doc(userB, 'users', USER_A)));
 
     // ---------- USER PROFILES: delete ----------
     await expectDenied('self profile delete', deleteDoc(profileDoc(userA, USER_A)));

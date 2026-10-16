@@ -72,7 +72,11 @@ service cloud.firestore {
           && request.resource.data.name.size() >= 1
           && request.resource.data.name.size() <= 80
           && request.resource.data.username is string
-          && request.resource.data.username.matches('^[a-z0-9_]{3,20}$')
+          // Phase 2D.13D: '' is the explicit unclaimed-username sentinel so a
+          // public profile may exist without a claimed username. Ownership
+          // and uniqueness stay backend-enforced via usernames/* reservations.
+          && (request.resource.data.username.size() == 0
+              || request.resource.data.username.matches('^[a-z0-9_]{3,20}$'))
           && request.resource.data.profileImageUrl is string
           && request.resource.data.profileImageUrl.size() <= 2048
           && request.resource.data.bio is string
